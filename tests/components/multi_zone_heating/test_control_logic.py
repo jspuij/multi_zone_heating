@@ -9,6 +9,7 @@ from custom_components.multi_zone_heating.control_logic import (
     aggregate_temperature,
     decide_relay_action,
     evaluate_hysteresis_demand,
+    evaluate_local_control_group,
     evaluate_zone,
     flow_threshold_reached,
     resolve_effective_target_temperature,
@@ -135,6 +136,33 @@ def test_switch_zone_demand_is_aggregated_from_local_groups() -> None:
     assert aggregate_system_demand([evaluation]) is True
 
 
+def test_local_control_group_evaluation_is_independently_testable() -> None:
+    """A local group should apply override, frost, and hysteresis on its own."""
+    group = LocalControlGroup(
+        name="Radiator",
+        control_type=ControlType.SWITCH,
+        sensor_entity_ids=["sensor.radiator"],
+        actuator_entity_ids=["switch.radiator"],
+        aggregation_mode=AggregationMode.AVERAGE,
+    )
+
+    evaluation = evaluate_local_control_group(
+        group,
+        {"sensor.radiator": 17.6},
+        zone_target_temperature=19.0,
+        previous_demand=False,
+        hysteresis=0.3,
+        global_override=GlobalOverride(target_temperature=17.0),
+        zone_frost_protection_min_temp=18.0,
+        global_frost_protection_min_temp=7.0,
+    )
+
+    assert evaluation.current_temperature == 17.6
+    assert evaluation.target_temperature == 19.0
+    assert evaluation.effective_target_temperature == 18.0
+    assert evaluation.demand is True
+
+
 def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
     """Unavailable sensors should result in no climate-zone demand."""
     zone = ZoneConfig(
@@ -153,6 +181,30 @@ def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
             "sensor.b": None,
         },
         zone_target_temperature=20.0,
+        previous_demand=True,
+        hysteresis=0.3,
+    )
+
+    assert evaluation.current_temperature is None
+    assert evaluation.demand is False
+
+
+def test_disabled_zone_stays_off() -> None:
+    """Disabled zones should never call for heat."""
+    zone = ZoneConfig(
+        name="Study",
+        control_type=ControlType.CLIMATE,
+        target_source=TargetSourceType.CLIMATE,
+        target_entity_id="climate.study",
+        sensor_entity_ids=["sensor.study"],
+        aggregation_mode=AggregationMode.AVERAGE,
+        enabled=False,
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.study": 16.0},
+        zone_target_temperature=21.0,
         previous_demand=True,
         hysteresis=0.3,
     )

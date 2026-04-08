@@ -37,14 +37,14 @@ def aggregate_temperature(
     primary_sensor_entity_id: str | None = None,
 ) -> float | None:
     """Aggregate configured sensor values into one effective temperature."""
-    available = _available_temperatures(sensor_values, sensor_entity_ids)
-    if not available:
-        return None
-
     if aggregation_mode is AggregationMode.PRIMARY:
         if primary_sensor_entity_id is None:
             return None
         return sensor_values.get(primary_sensor_entity_id)
+
+    available = _available_temperatures(sensor_values, sensor_entity_ids)
+    if not available:
+        return None
 
     values = [temperature for _, temperature in available]
     if aggregation_mode is AggregationMode.MINIMUM:

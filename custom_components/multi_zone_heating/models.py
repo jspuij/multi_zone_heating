@@ -102,19 +102,6 @@ class GlobalOverride:
 
 
 @dataclass(slots=True)
-class TemperatureSnapshot:
-    """Normalized temperature reading for a configured sensor."""
-
-    entity_id: str
-    temperature: float | None
-
-    @property
-    def is_available(self) -> bool:
-        """Return whether the sensor currently has a usable reading."""
-        return self.temperature is not None
-
-
-@dataclass(slots=True)
 class LocalControlGroupEvaluation:
     """Pure evaluation result for a local control group."""
 
@@ -129,7 +116,11 @@ class LocalControlGroupEvaluation:
 
 @dataclass(slots=True)
 class ZoneEvaluation:
-    """Pure evaluation result for a zone."""
+    """Pure evaluation result for a zone.
+
+    For zones composed of local control groups, `current_temperature` remains
+    `None` because temperature is evaluated at the group level.
+    """
 
     name: str
     control_type: ControlType
