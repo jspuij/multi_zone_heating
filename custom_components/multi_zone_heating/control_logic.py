@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime, timedelta
 
 from .models import (
@@ -113,6 +113,7 @@ def evaluate_local_control_group(
     sensor_values: Mapping[str, float | None],
     *,
     zone_target_temperature: float | None,
+    available_actuator_entity_ids: Collection[str] | None = None,
     previous_demand: bool,
     hysteresis: float,
     global_override: GlobalOverride | None = None,
@@ -120,6 +121,11 @@ def evaluate_local_control_group(
     global_frost_protection_min_temp: float | None = None,
 ) -> LocalControlGroupEvaluation:
     """Evaluate the demand state for one local control group."""
+    available_actuators = [
+        entity_id
+        for entity_id in group.actuator_entity_ids
+        if available_actuator_entity_ids is None or entity_id in available_actuator_entity_ids
+    ]
     current_temperature = aggregate_temperature(
         sensor_values,
         group.sensor_entity_ids,
@@ -137,7 +143,7 @@ def evaluate_local_control_group(
         effective_target_temperature,
         previous_demand=previous_demand,
         hysteresis=hysteresis,
-    )
+    ) and bool(available_actuators)
     return LocalControlGroupEvaluation(
         name=group.name,
         control_type=group.control_type,
@@ -149,6 +155,7 @@ def evaluate_local_control_group(
             entity_id
             for entity_id, _ in _available_temperatures(sensor_values, group.sensor_entity_ids)
         ],
+        available_actuator_entity_ids=available_actuators,
     )
 
 
@@ -157,6 +164,7 @@ def evaluate_zone(
     sensor_values: Mapping[str, float | None],
     *,
     zone_target_temperature: float | None,
+    available_actuator_entity_ids: Collection[str] | None = None,
     previous_demand: bool,
     previous_group_demands: Mapping[str, bool] | None = None,
     hysteresis: float,
@@ -188,6 +196,7 @@ def evaluate_zone(
                 group,
                 sensor_values,
                 zone_target_temperature=zone_target_temperature,
+                available_actuator_entity_ids=available_actuator_entity_ids,
                 previous_demand=group_demands.get(group.name, False),
                 hysteresis=hysteresis,
                 global_override=global_override,
@@ -217,6 +226,9 @@ def evaluate_zone(
         effective_target_temperature,
         previous_demand=previous_demand,
         hysteresis=hysteresis,
+    ) and any(
+        available_actuator_entity_ids is None or entity_id in available_actuator_entity_ids
+        for entity_id in zone.climate_entity_ids
     )
     return ZoneEvaluation(
         name=zone.name,
@@ -228,6 +240,11 @@ def evaluate_zone(
         available_sensor_entity_ids=[
             entity_id
             for entity_id, _ in _available_temperatures(sensor_values, zone.sensor_entity_ids)
+        ],
+        available_actuator_entity_ids=[
+            entity_id
+            for entity_id in zone.climate_entity_ids
+            if available_actuator_entity_ids is None or entity_id in available_actuator_entity_ids
         ],
     )
 

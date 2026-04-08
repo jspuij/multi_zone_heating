@@ -66,6 +66,7 @@ class ZoneConfig:
     target_entity_id: str
     sensor_entity_ids: list[str] = field(default_factory=list)
     climate_entity_ids: list[str] = field(default_factory=list)
+    climate_off_fallback_temperature: float | None = None
     local_groups: list[LocalControlGroup] = field(default_factory=list)
     aggregation_mode: AggregationMode = AggregationMode.AVERAGE
     primary_sensor_entity_id: str | None = None
@@ -117,6 +118,7 @@ class LocalControlGroupEvaluation:
     effective_target_temperature: float | None
     demand: bool
     available_sensor_entity_ids: list[str] = field(default_factory=list)
+    available_actuator_entity_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -134,6 +136,7 @@ class ZoneEvaluation:
     effective_target_temperature: float | None
     demand: bool
     available_sensor_entity_ids: list[str] = field(default_factory=list)
+    available_actuator_entity_ids: list[str] = field(default_factory=list)
     local_groups: list[LocalControlGroupEvaluation] = field(default_factory=list)
 
 
