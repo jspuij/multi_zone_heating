@@ -493,6 +493,9 @@ class MultiZoneHeatingConfigFlow(ConfigFlow, domain=DOMAIN):
                 return {"base": "primary_sensor_required"}
             if primary_sensor not in user_input[CONF_SENSOR_ENTITY_IDS]:
                 return {"base": "primary_sensor_not_in_sensors"}
+        # Number-based groups always require both configured values in v1 so the
+        # later runtime logic can deterministically drive the actuator when heat
+        # starts and when it stops, regardless of semantic type.
         if zone_control_type == ControlType.NUMBER and (
             user_input.get(CONF_ACTIVE_VALUE) is None
             or user_input.get(CONF_INACTIVE_VALUE) is None
