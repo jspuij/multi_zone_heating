@@ -26,6 +26,10 @@ The integration will coordinate zone-level heat demand and whole-home water flow
 
 - [Integration design](/Users/jws/Projects/thermostat/docs/integration-design.md)
 
+## Developer Notes
+
+- Home Assistant expects `custom_components/multi_zone_heating/strings.json` and `custom_components/multi_zone_heating/translations/en.json` to stay in sync. When config-flow copy changes, update both files together.
+
 ## Planned Capabilities
 
 - Per-zone configuration for one or more sensor entities, one target, and one or more valve entities
