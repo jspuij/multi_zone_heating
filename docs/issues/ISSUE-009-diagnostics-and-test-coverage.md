@@ -16,6 +16,7 @@ Add diagnostics, test coverage, and quality hardening for version 1 readiness.
   - relay timing
   - flow warnings
   - global override behavior
+- Integrate test coverage reporting into the GitHub Actions build pipeline
 - Review config entry migration needs
 
 ## Why
@@ -35,6 +36,7 @@ The integration will be much easier to trust and maintain if behavior is covered
 - Core logic has automated test coverage
 - The most important end-to-end behaviors are integration-tested
 - Version 1 behavior is reproducible in tests
+- Test coverage is collected in CI and included in the build pipeline output
 
 ## Dependencies
 
@@ -44,6 +46,7 @@ The integration will be much easier to trust and maintain if behavior is covered
 - ISSUE-006
 - ISSUE-007
 - ISSUE-008
+- ISSUE-010
 
 ## Out Of Scope
 
