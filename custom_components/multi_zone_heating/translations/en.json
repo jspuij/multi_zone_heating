@@ -1,0 +1,17 @@
+{
+  "title": "Multi-Zone Heating",
+  "config": {
+    "abort": {
+      "already_configured": "The integration has already been configured."
+    },
+    "step": {
+      "user": {
+        "title": "Set up Multi-Zone Heating",
+        "description": "Create the initial integration entry. Detailed configuration will be added in later milestones.",
+        "data": {
+          "name": "Name"
+        }
+      }
+    }
+  }
+}
