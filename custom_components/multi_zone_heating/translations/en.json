@@ -4,12 +4,83 @@
     "abort": {
       "already_configured": "The integration has already been configured."
     },
+    "error": {
+      "flow_threshold_required": "Provide a flow threshold when a flow sensor is configured.",
+      "group_name_required": "Each local control group needs a name.",
+      "group_requires_actuators": "Each local control group needs at least one actuator.",
+      "group_requires_sensors": "Each local control group needs at least one temperature sensor.",
+      "number_values_required": "Number control groups need active and inactive values.",
+      "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
+      "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
+      "target_entity_domain_mismatch": "The target entity must match the selected target source type.",
+      "zone_name_required": "Each zone needs a name.",
+      "zone_requires_climate_entities": "Climate zones need at least one climate entity.",
+      "zone_requires_sensors": "Climate zones need at least one temperature sensor."
+    },
     "step": {
       "user": {
         "title": "Set up Multi-Zone Heating",
-        "description": "Create the initial integration entry. Detailed configuration will be added in later milestones.",
+        "description": "Configure the shared heating system settings before adding zones.",
         "data": {
-          "name": "Name"
+          "default_hysteresis": "Default hysteresis",
+          "flow_detection_threshold": "Flow detection threshold",
+          "flow_sensor_entity_id": "Flow meter entity",
+          "frost_protection_min_temp": "Global frost minimum",
+          "main_relay_entity_id": "Main relay entity",
+          "min_relay_off_time_seconds": "Minimum relay off time (seconds)",
+          "min_relay_on_time_seconds": "Minimum relay on time (seconds)",
+          "name": "Name",
+          "relay_off_delay_seconds": "Relay off delay (seconds)"
+        }
+      },
+      "zone": {
+        "title": "Add Zone",
+        "description": "Define the shared settings for one heating zone.",
+        "data": {
+          "control_type": "Control type",
+          "enabled": "Enabled",
+          "frost_protection_min_temp": "Zone frost minimum",
+          "name": "Zone name",
+          "target_entity_id": "Target entity",
+          "target_source": "Target source"
+        }
+      },
+      "climate_zone": {
+        "title": "Climate Zone Details",
+        "description": "Choose the sensors and climate entities used by this zone.",
+        "data": {
+          "aggregation_mode": "Temperature aggregation mode",
+          "climate_entity_ids": "Climate entities",
+          "primary_sensor_entity_id": "Primary sensor",
+          "sensor_entity_ids": "Temperature sensors"
+        }
+      },
+      "local_group": {
+        "title": "Local Control Group",
+        "description": "Add one local sensor-and-actuator group for this zone.",
+        "data": {
+          "active_value": "Active value",
+          "actuator_entity_ids": "Actuator entities",
+          "aggregation_mode": "Temperature aggregation mode",
+          "inactive_value": "Inactive value",
+          "name": "Group name",
+          "number_semantic_type": "Number semantic type",
+          "primary_sensor_entity_id": "Primary sensor",
+          "sensor_entity_ids": "Temperature sensors"
+        }
+      },
+      "local_group_options": {
+        "title": "Add Another Group",
+        "description": "Choose whether to add another local control group to this zone.",
+        "data": {
+          "add_another_group": "Add another local control group"
+        }
+      },
+      "zone_options": {
+        "title": "Add Another Zone",
+        "description": "Choose whether to add another zone or finish setup.",
+        "data": {
+          "add_another_zone": "Add another zone"
         }
       }
     }
