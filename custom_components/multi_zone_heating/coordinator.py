@@ -310,9 +310,9 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             if current_hvac_mode is not None:
                 self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
 
-            hvac_modes = set(state.attributes.get(ATTR_HVAC_MODES) or [])
+            hvac_modes = self._read_supported_hvac_modes(entity_id)
             if evaluation.demand:
-                if HVACMode.HEAT in hvac_modes and current_hvac_mode is HVACMode.OFF:
+                if HVACMode.HEAT in hvac_modes and current_hvac_mode == HVACMode.OFF:
                     await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.HEAT)
 
                 target_temperature = evaluation.effective_target_temperature
@@ -465,12 +465,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     ) -> None:
         """Set a climate entity HVAC mode only when required."""
         current_hvac_mode = self._read_climate_hvac_mode(entity_id)
-        if current_hvac_mode is desired_hvac_mode:
+        if current_hvac_mode == desired_hvac_mode:
             self._last_commanded_climate_hvac_modes.pop(entity_id, None)
             return
 
         last_commanded = self._last_commanded_climate_hvac_modes.get(entity_id)
-        if last_commanded is desired_hvac_mode:
+        if last_commanded == desired_hvac_mode:
             return
 
         await self.hass.services.async_call(
@@ -490,7 +490,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         current_hvac_mode: HVACMode,
     ) -> None:
         """Clear a pending climate HVAC-mode command once HA reflects it."""
-        if self._last_commanded_climate_hvac_modes.get(entity_id) is current_hvac_mode:
+        if self._last_commanded_climate_hvac_modes.get(entity_id) == current_hvac_mode:
             self._last_commanded_climate_hvac_modes.pop(entity_id, None)
 
     def _read_target_temperature(self, zone: ZoneConfig) -> float | None:
@@ -528,6 +528,24 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return HVACMode(state.state)
         except ValueError:
             return None
+
+    def _read_supported_hvac_modes(self, entity_id: str | None) -> set[HVACMode]:
+        """Read the supported HVAC modes from a climate entity state."""
+        if entity_id is None:
+            return set()
+
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return set()
+
+        supported_modes: set[HVACMode] = set()
+        for mode in state.attributes.get(ATTR_HVAC_MODES) or []:
+            try:
+                supported_modes.add(HVACMode(mode))
+            except ValueError:
+                continue
+
+        return supported_modes
 
     def _read_switch_state(self, entity_id: str | None) -> bool | None:
         """Read an on/off state from Home Assistant."""
