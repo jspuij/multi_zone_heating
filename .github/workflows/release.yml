@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -34,12 +36,24 @@ jobs:
         run: python scripts/package_release.py --output-dir dist
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.package.outputs.archive_name }}
           path: ${{ steps.package.outputs.archive_path }}
 
+      - name: Check whether this version is already released
+        id: release_check
+        run: |
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/v${{ steps.package.outputs.version }}" >/dev/null; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Version v${{ steps.package.outputs.version }} already has a tag; skipping GitHub release."
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub release
+        if: steps.release_check.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.package.outputs.version }}
