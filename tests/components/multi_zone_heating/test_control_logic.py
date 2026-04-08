@@ -150,6 +150,7 @@ def test_local_control_group_evaluation_is_independently_testable() -> None:
         group,
         {"sensor.radiator": 17.6},
         zone_target_temperature=19.0,
+        available_actuator_entity_ids=["switch.radiator"],
         previous_demand=False,
         hysteresis=0.3,
         global_override=GlobalOverride(target_temperature=17.0),
@@ -161,6 +162,7 @@ def test_local_control_group_evaluation_is_independently_testable() -> None:
     assert evaluation.target_temperature == 19.0
     assert evaluation.effective_target_temperature == 18.0
     assert evaluation.demand is True
+    assert evaluation.available_actuator_entity_ids == ["switch.radiator"]
 
 
 def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
@@ -181,12 +183,46 @@ def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
             "sensor.b": None,
         },
         zone_target_temperature=20.0,
+        available_actuator_entity_ids=["climate.living_room"],
         previous_demand=True,
         hysteresis=0.3,
     )
 
     assert evaluation.current_temperature is None
     assert evaluation.demand is False
+
+
+def test_zone_demand_turns_off_when_no_actuators_are_available() -> None:
+    """A zone should not call for heat when it cannot actuate anything."""
+    zone = ZoneConfig(
+        name="Bedroom",
+        control_type=ControlType.SWITCH,
+        target_source=TargetSourceType.INPUT_NUMBER,
+        target_entity_id="input_number.bedroom_target",
+        local_groups=[
+            LocalControlGroup(
+                name="Radiator",
+                control_type=ControlType.SWITCH,
+                sensor_entity_ids=["sensor.radiator"],
+                actuator_entity_ids=["switch.radiator"],
+                aggregation_mode=AggregationMode.AVERAGE,
+            )
+        ],
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.radiator": 19.0},
+        zone_target_temperature=20.0,
+        available_actuator_entity_ids=[],
+        previous_demand=True,
+        previous_group_demands={"Radiator": True},
+        hysteresis=0.3,
+    )
+
+    assert evaluation.demand is False
+    assert evaluation.local_groups[0].demand is False
+    assert evaluation.local_groups[0].available_actuator_entity_ids == []
 
 
 def test_disabled_zone_stays_off() -> None:

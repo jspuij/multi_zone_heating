@@ -15,6 +15,7 @@ CONF_ACTIVE_VALUE = "active_value"
 CONF_ACTUATOR_ENTITY_IDS = "actuator_entity_ids"
 CONF_AGGREGATION_MODE = "aggregation_mode"
 CONF_CLIMATE_ENTITY_IDS = "climate_entity_ids"
+CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE = "climate_off_fallback_temperature"
 CONF_CONTROL_TYPE = "control_type"
 CONF_DEFAULT_HYSTERESIS = "default_hysteresis"
 CONF_ENABLED = "enabled"
@@ -133,6 +134,9 @@ class MultiZoneHeatingConfigFlow(ConfigFlow, domain=DOMAIN):
                     **self._pending_zone,
                     CONF_SENSOR_ENTITY_IDS: user_input[CONF_SENSOR_ENTITY_IDS],
                     CONF_CLIMATE_ENTITY_IDS: user_input[CONF_CLIMATE_ENTITY_IDS],
+                    CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: user_input.get(
+                        CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE
+                    ),
                     CONF_LOCAL_GROUPS: [],
                     CONF_AGGREGATION_MODE: user_input[CONF_AGGREGATION_MODE],
                     CONF_PRIMARY_SENSOR_ENTITY_ID: user_input.get(
@@ -332,6 +336,9 @@ class MultiZoneHeatingConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_CLIMATE_ENTITY_IDS): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["climate"], multiple=True)
+                ),
+                vol.Optional(CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(step=0.5, mode="box")
                 ),
                 vol.Required(
                     CONF_AGGREGATION_MODE, default=AggregationMode.AVERAGE

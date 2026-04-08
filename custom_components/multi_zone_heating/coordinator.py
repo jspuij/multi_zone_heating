@@ -8,7 +8,14 @@ import logging
 import math
 from typing import Any
 
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, SERVICE_SET_TEMPERATURE
+from homeassistant.components.climate import (
+    ATTR_HVAC_MODE,
+    ATTR_HVAC_MODES,
+    DOMAIN as CLIMATE_DOMAIN,
+    HVACMode,
+    SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_TEMPERATURE,
+)
 from homeassistant.components.number import ATTR_VALUE, SERVICE_SET_VALUE
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
@@ -59,6 +66,9 @@ def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
         target_entity_id=str(data["target_entity_id"]),
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
+        climate_off_fallback_temperature=_as_float(
+            data.get("climate_off_fallback_temperature")
+        ),
         local_groups=[_group_from_dict(group_data) for group_data in data.get("local_groups", [])],
         aggregation_mode=AggregationMode(data.get("aggregation_mode", "average")),
         primary_sensor_entity_id=data.get("primary_sensor_entity_id"),
@@ -113,6 +123,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._last_commanded_switch_states: dict[str, bool] = {}
         self._last_commanded_number_values: dict[str, float] = {}
         self._last_commanded_climate_targets: dict[str, float] = {}
+        self._last_commanded_climate_hvac_modes: dict[str, HVACMode] = {}
         self._relay_runtime_state = RelayRuntimeState(is_on=False)
 
     async def async_start(self) -> None:
@@ -175,6 +186,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 zone,
                 snapshot.sensor_values,
                 zone_target_temperature=snapshot.target_temperatures.get(zone.name),
+                available_actuator_entity_ids=snapshot.actuator_available_entity_ids,
                 previous_demand=self._last_zone_demands.get(zone.name, False),
                 previous_group_demands=self._last_group_demands.get(zone.name),
                 hysteresis=self.config.default_hysteresis,
@@ -286,22 +298,71 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         evaluation: ZoneEvaluation,
     ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
-        target_temperature = evaluation.effective_target_temperature
-        if target_temperature is None:
-            return
-
         for entity_id in zone.climate_entity_ids:
             if not self._entity_is_available(entity_id):
                 continue
 
             state = self.hass.states.get(entity_id)
-            current_target = _as_float(state.attributes.get("temperature")) if state else None
-            if current_target is not None and math.isclose(current_target, target_temperature, abs_tol=0.01):
-                self._last_commanded_climate_targets.pop(entity_id, None)
+            if state is None:
+                continue
+
+            current_hvac_mode = self._read_climate_hvac_mode(entity_id)
+            if current_hvac_mode is not None:
+                self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
+
+            hvac_modes = self._read_supported_hvac_modes(entity_id)
+            if evaluation.demand:
+                if HVACMode.HEAT in hvac_modes and current_hvac_mode == HVACMode.OFF:
+                    await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.HEAT)
+
+                target_temperature = evaluation.effective_target_temperature
+                if target_temperature is None:
+                    continue
+
+                current_target = _as_float(state.attributes.get("temperature"))
+                if current_target is not None and math.isclose(
+                    current_target, target_temperature, abs_tol=0.01
+                ):
+                    self._last_commanded_climate_targets.pop(entity_id, None)
+                    continue
+
+                last_target = self._last_commanded_climate_targets.get(entity_id)
+                if last_target is not None and math.isclose(
+                    last_target, target_temperature, abs_tol=0.01
+                ):
+                    continue
+
+                await self.hass.services.async_call(
+                    CLIMATE_DOMAIN,
+                    SERVICE_SET_TEMPERATURE,
+                    {
+                        ATTR_ENTITY_ID: entity_id,
+                        "temperature": target_temperature,
+                    },
+                    blocking=True,
+                )
+                self._last_commanded_climate_targets[entity_id] = target_temperature
+                continue
+
+            self._last_commanded_climate_targets.pop(entity_id, None)
+            if HVACMode.OFF in hvac_modes:
+                await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.OFF)
+                continue
+
+            fallback_temperature = zone.climate_off_fallback_temperature
+            if fallback_temperature is None:
+                continue
+
+            current_target = _as_float(state.attributes.get("temperature"))
+            if current_target is not None and math.isclose(
+                current_target, fallback_temperature, abs_tol=0.01
+            ):
                 continue
 
             last_target = self._last_commanded_climate_targets.get(entity_id)
-            if last_target is not None and math.isclose(last_target, target_temperature, abs_tol=0.01):
+            if last_target is not None and math.isclose(
+                last_target, fallback_temperature, abs_tol=0.01
+            ):
                 continue
 
             await self.hass.services.async_call(
@@ -309,11 +370,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 SERVICE_SET_TEMPERATURE,
                 {
                     ATTR_ENTITY_ID: entity_id,
-                    "temperature": target_temperature,
+                    "temperature": fallback_temperature,
                 },
                 blocking=True,
             )
-            self._last_commanded_climate_targets[entity_id] = target_temperature
+            self._last_commanded_climate_targets[entity_id] = fallback_temperature
 
     async def _async_dispatch_switch_group(self, group: LocalControlGroup, demand: bool) -> None:
         """Turn switch actuators on or off for one local group."""
@@ -397,6 +458,41 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         )
         self._last_commanded_switch_states[entity_id] = desired_on
 
+    async def _async_dispatch_climate_hvac_mode(
+        self,
+        entity_id: str,
+        desired_hvac_mode: HVACMode,
+    ) -> None:
+        """Set a climate entity HVAC mode only when required."""
+        current_hvac_mode = self._read_climate_hvac_mode(entity_id)
+        if current_hvac_mode == desired_hvac_mode:
+            self._last_commanded_climate_hvac_modes.pop(entity_id, None)
+            return
+
+        last_commanded = self._last_commanded_climate_hvac_modes.get(entity_id)
+        if last_commanded == desired_hvac_mode:
+            return
+
+        await self.hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {
+                ATTR_ENTITY_ID: entity_id,
+                ATTR_HVAC_MODE: desired_hvac_mode,
+            },
+            blocking=True,
+        )
+        self._last_commanded_climate_hvac_modes[entity_id] = desired_hvac_mode
+
+    def _clear_climate_hvac_mode_if_synced(
+        self,
+        entity_id: str,
+        current_hvac_mode: HVACMode,
+    ) -> None:
+        """Clear a pending climate HVAC-mode command once HA reflects it."""
+        if self._last_commanded_climate_hvac_modes.get(entity_id) == current_hvac_mode:
+            self._last_commanded_climate_hvac_modes.pop(entity_id, None)
+
     def _read_target_temperature(self, zone: ZoneConfig) -> float | None:
         """Read the configured zone target from its source entity."""
         state = self.hass.states.get(zone.target_entity_id)
@@ -418,6 +514,38 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return None
 
         return _as_float(state.state)
+
+    def _read_climate_hvac_mode(self, entity_id: str | None) -> HVACMode | None:
+        """Read the current HVAC mode from Home Assistant."""
+        if entity_id is None:
+            return None
+
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+            return None
+
+        try:
+            return HVACMode(state.state)
+        except ValueError:
+            return None
+
+    def _read_supported_hvac_modes(self, entity_id: str | None) -> set[HVACMode]:
+        """Read the supported HVAC modes from a climate entity state."""
+        if entity_id is None:
+            return set()
+
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return set()
+
+        supported_modes: set[HVACMode] = set()
+        for mode in state.attributes.get(ATTR_HVAC_MODES) or []:
+            try:
+                supported_modes.add(HVACMode(mode))
+            except ValueError:
+                continue
+
+        return supported_modes
 
     def _read_switch_state(self, entity_id: str | None) -> bool | None:
         """Read an on/off state from Home Assistant."""

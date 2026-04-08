@@ -11,6 +11,7 @@ from custom_components.multi_zone_heating.config_flow import (
     CONF_ACTUATOR_ENTITY_IDS,
     CONF_AGGREGATION_MODE,
     CONF_CLIMATE_ENTITY_IDS,
+    CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE,
     CONF_CONTROL_TYPE,
     CONF_DEFAULT_HYSTERESIS,
     CONF_ENABLED,
@@ -106,6 +107,7 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
         {
             CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
             CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+            CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.5,
             CONF_AGGREGATION_MODE: AggregationMode.PRIMARY,
             CONF_PRIMARY_SENSOR_ENTITY_ID: "sensor.living_room_temperature",
         },
@@ -140,6 +142,7 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
                 CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
                 CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
                 CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+                CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.5,
                 CONF_LOCAL_GROUPS: [],
                 CONF_AGGREGATION_MODE: AggregationMode.PRIMARY,
                 CONF_PRIMARY_SENSOR_ENTITY_ID: "sensor.living_room_temperature",
@@ -332,6 +335,7 @@ async def test_user_flow_supports_multiple_zones_and_multiple_local_groups(hass)
     assert len(result["data"][CONF_ZONES]) == 2
     assert len(result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS]) == 2
     assert result["data"][CONF_ZONES][1][CONF_NAME] == "Living Room"
+    assert result["data"][CONF_ZONES][1][CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE] is None
 
 
 async def test_number_group_requires_number_values(hass) -> None:

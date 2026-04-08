@@ -51,6 +51,7 @@
         "data": {
           "aggregation_mode": "Temperature aggregation mode",
           "climate_entity_ids": "Climate entities",
+          "climate_off_fallback_temperature": "Fallback target when off is unsupported",
           "primary_sensor_entity_id": "Primary sensor",
           "sensor_entity_ids": "Temperature sensors"
         }
