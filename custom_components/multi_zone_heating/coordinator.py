@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 import logging
 import math
@@ -23,10 +23,12 @@ from .models import (
     IntegrationConfig,
     LocalControlGroup,
     NumberSemanticType,
+    RelayDecision,
     RelayRuntimeState,
     RuntimeSnapshot,
     TargetSourceType,
     ZoneConfig,
+    ZoneEvaluation,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,6 +150,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         pending_relay_command = self._last_commanded_switch_states.get(
             self.config.main_relay_entity_id or ""
         )
+        # Ignore stale HA state while a relay command is still in flight so we
+        # do not flip runtime state back and resend the same command.
         if current_relay_is_on is not None and not (
             pending_relay_command is not None and current_relay_is_on != pending_relay_command
         ):
@@ -243,10 +247,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                     else:
                         unavailable_entity_ids.add(actuator_entity_id)
 
-        if self.config.main_relay_entity_id and not self._entity_is_available(self.config.main_relay_entity_id):
-            unavailable_entity_ids.add(self.config.main_relay_entity_id)
-        if self.config.main_relay_entity_id and self._entity_is_available(self.config.main_relay_entity_id):
-            actuator_available_entity_ids.add(self.config.main_relay_entity_id)
+        if self.config.main_relay_entity_id:
+            if self._entity_is_available(self.config.main_relay_entity_id):
+                actuator_available_entity_ids.add(self.config.main_relay_entity_id)
+            else:
+                unavailable_entity_ids.add(self.config.main_relay_entity_id)
 
         if self.config.flow_sensor_entity_id:
             flow_value = self._read_numeric_state(self.config.flow_sensor_entity_id)
@@ -258,7 +263,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
-    async def _async_dispatch_zone_commands(self, zone_evaluations: list[Any]) -> None:
+    async def _async_dispatch_zone_commands(self, zone_evaluations: list[ZoneEvaluation]) -> None:
         """Send zone-level actuator commands when outputs should change."""
         for zone, evaluation in zip(self.config.zones, zone_evaluations, strict=True):
             if zone.control_type is ControlType.CLIMATE:
@@ -275,7 +280,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 elif group_config.control_type is ControlType.NUMBER:
                     await self._async_dispatch_number_group(group_config, group_evaluation.demand)
 
-    async def _async_dispatch_climate_zone(self, zone: ZoneConfig, evaluation: Any) -> None:
+    async def _async_dispatch_climate_zone(
+        self,
+        zone: ZoneConfig,
+        evaluation: ZoneEvaluation,
+    ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
         target_temperature = evaluation.effective_target_temperature
         if target_temperature is None:
@@ -343,7 +352,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
     async def _async_dispatch_relay_command(
         self,
-        relay_decision: Any,
+        relay_decision: RelayDecision | None,
         now: datetime,
     ) -> None:
         """Apply the main relay decision when a state transition is required."""

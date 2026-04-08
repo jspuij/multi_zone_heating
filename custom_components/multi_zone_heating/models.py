@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .coordinator import MultiZoneHeatingCoordinator
 
 
 class AggregationMode(StrEnum):
@@ -91,7 +95,7 @@ class RuntimeData:
 
     config_entry_id: str
     config: IntegrationConfig = field(default_factory=IntegrationConfig)
-    coordinator: object | None = None
+    coordinator: MultiZoneHeatingCoordinator | None = None
 
 
 @dataclass(slots=True)
