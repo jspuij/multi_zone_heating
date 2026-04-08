@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 
 
@@ -70,7 +71,7 @@ class ZoneConfig:
 
 @dataclass(slots=True)
 class IntegrationConfig:
-    """Placeholder top-level integration configuration model."""
+    """Top-level integration configuration."""
 
     main_relay_entity_id: str | None = None
     flow_sensor_entity_id: str | None = None
@@ -90,3 +91,74 @@ class RuntimeData:
 
     config_entry_id: str
     config: IntegrationConfig = field(default_factory=IntegrationConfig)
+
+
+@dataclass(slots=True)
+class GlobalOverride:
+    """Represents the optional system-wide target override."""
+
+    target_temperature: float
+    active: bool = True
+
+
+@dataclass(slots=True)
+class TemperatureSnapshot:
+    """Normalized temperature reading for a configured sensor."""
+
+    entity_id: str
+    temperature: float | None
+
+    @property
+    def is_available(self) -> bool:
+        """Return whether the sensor currently has a usable reading."""
+        return self.temperature is not None
+
+
+@dataclass(slots=True)
+class LocalControlGroupEvaluation:
+    """Pure evaluation result for a local control group."""
+
+    name: str
+    control_type: ControlType
+    current_temperature: float | None
+    target_temperature: float | None
+    effective_target_temperature: float | None
+    demand: bool
+    available_sensor_entity_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ZoneEvaluation:
+    """Pure evaluation result for a zone."""
+
+    name: str
+    control_type: ControlType
+    current_temperature: float | None
+    target_temperature: float | None
+    effective_target_temperature: float | None
+    demand: bool
+    available_sensor_entity_ids: list[str] = field(default_factory=list)
+    local_groups: list[LocalControlGroupEvaluation] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RelayRuntimeState:
+    """Minimal runtime state needed to make relay timing decisions."""
+
+    is_on: bool
+    last_on_at: datetime | None = None
+    last_off_at: datetime | None = None
+    off_requested_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class RelayDecision:
+    """Deterministic relay decision produced by the pure control logic."""
+
+    desired_on: bool
+    resulting_state: bool
+    should_turn_on: bool = False
+    should_turn_off: bool = False
+    off_requested_at: datetime | None = None
+    next_recheck_at: datetime | None = None
+    hold_reason: str | None = None

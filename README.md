@@ -26,6 +26,13 @@ The integration will coordinate zone-level heat demand and whole-home water flow
 
 - [Integration design](/Users/jws/Projects/thermostat/docs/integration-design.md)
 
+## Development Setup
+
+- Project Python tooling lives in `.venv/`.
+- Use the virtualenv executables directly for local checks, for example `.venv/bin/pytest`.
+- Run tests with the repository root on `PYTHONPATH` so `custom_components` imports resolve correctly.
+- Example: `PYTHONPATH=. .venv/bin/pytest -q`
+
 ## Developer Notes
 
 - Home Assistant expects `custom_components/multi_zone_heating/strings.json` and `custom_components/multi_zone_heating/translations/en.json` to stay in sync. When config-flow copy changes, update both files together.
