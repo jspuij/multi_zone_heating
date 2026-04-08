@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .coordinator import MultiZoneHeatingCoordinator
 
 
 class AggregationMode(StrEnum):
@@ -91,6 +95,7 @@ class RuntimeData:
 
     config_entry_id: str
     config: IntegrationConfig = field(default_factory=IntegrationConfig)
+    coordinator: MultiZoneHeatingCoordinator | None = None
 
 
 @dataclass(slots=True)
@@ -153,3 +158,17 @@ class RelayDecision:
     off_requested_at: datetime | None = None
     next_recheck_at: datetime | None = None
     hold_reason: str | None = None
+
+
+@dataclass(slots=True)
+class RuntimeSnapshot:
+    """Current runtime state assembled from Home Assistant and control logic."""
+
+    sensor_values: dict[str, float | None] = field(default_factory=dict)
+    target_temperatures: dict[str, float | None] = field(default_factory=dict)
+    actuator_available_entity_ids: list[str] = field(default_factory=list)
+    unavailable_entity_ids: list[str] = field(default_factory=list)
+    zone_evaluations: list[ZoneEvaluation] = field(default_factory=list)
+    system_demand: bool = False
+    relay_runtime_state: RelayRuntimeState | None = None
+    relay_decision: RelayDecision | None = None
