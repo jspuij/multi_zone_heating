@@ -29,6 +29,13 @@ class TargetSourceType(StrEnum):
     INPUT_NUMBER = "input_number"
 
 
+class NumberSemanticType(StrEnum):
+    """Supported meanings for number-based actuators."""
+
+    PERCENTAGE = "percentage"
+    TEMPERATURE = "temperature"
+
+
 @dataclass(slots=True)
 class LocalControlGroup:
     """Placeholder model for a switch or number driven local spot."""
@@ -39,6 +46,9 @@ class LocalControlGroup:
     sensor_entity_ids: list[str] = field(default_factory=list)
     aggregation_mode: AggregationMode = AggregationMode.AVERAGE
     primary_sensor_entity_id: str | None = None
+    number_semantic_type: NumberSemanticType | None = None
+    active_value: float | None = None
+    inactive_value: float | None = None
 
 
 @dataclass(slots=True)
@@ -64,8 +74,14 @@ class IntegrationConfig:
 
     main_relay_entity_id: str | None = None
     flow_sensor_entity_id: str | None = None
+    flow_detection_threshold: float | None = None
     zones: list[ZoneConfig] = field(default_factory=list)
-    default_hysteresis: float = 0.0
+    default_hysteresis: float = 0.5
+    min_relay_on_time_seconds: int | None = None
+    min_relay_off_time_seconds: int | None = None
+    relay_off_delay_seconds: int | None = None
+    frost_protection_min_temp: float | None = None
+    failsafe_mode: str | None = None
 
 
 @dataclass(slots=True)

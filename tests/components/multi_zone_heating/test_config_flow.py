@@ -27,6 +27,21 @@ async def test_user_flow_creates_entry(hass) -> None:
     assert result["data"] == {}
 
 
+async def test_user_flow_uses_custom_name(hass) -> None:
+    """The user flow should persist a provided title."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_NAME: "My Heating"},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["title"] == "My Heating"
+
+
 async def test_single_instance_flow_aborts_when_entry_exists(hass, config_entry) -> None:
     """Only one config entry should be allowed."""
     config_entry.add_to_hass(hass)
@@ -36,4 +51,4 @@ async def test_single_instance_flow_aborts_when_entry_exists(hass, config_entry)
     )
 
     assert result["type"] is data_entry_flow.FlowResultType.ABORT
-    assert result["reason"] in {"already_configured", "single_instance_allowed"}
+    assert result["reason"] == "single_instance_allowed"

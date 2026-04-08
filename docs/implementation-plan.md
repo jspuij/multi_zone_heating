@@ -257,7 +257,10 @@ custom_components/
     models.py
     control_logic.py
     binary_sensor.py
+    climate.py
+    number.py
     sensor.py
+    switch.py
     switch.py
     climate.py
     diagnostics.py

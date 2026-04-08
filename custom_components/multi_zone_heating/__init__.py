@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -10,12 +10,11 @@ from homeassistant.core import HomeAssistant
 from .const import PLATFORMS
 from .models import RuntimeData
 
-MultiZoneHeatingConfigEntry: TypeAlias = ConfigEntry
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the integration from YAML."""
-    return True
+if TYPE_CHECKING:
+    MultiZoneHeatingConfigEntry: TypeAlias = ConfigEntry[RuntimeData]
+else:
+    # Older Home Assistant test targets expose ConfigEntry as a non-generic type.
+    MultiZoneHeatingConfigEntry: TypeAlias = ConfigEntry
 
 
 async def async_setup_entry(
