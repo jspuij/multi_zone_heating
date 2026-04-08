@@ -76,7 +76,7 @@ class IntegrationConfig:
     flow_sensor_entity_id: str | None = None
     flow_detection_threshold: float | None = None
     zones: list[ZoneConfig] = field(default_factory=list)
-    default_hysteresis: float = 0.5
+    default_hysteresis: float = 0.3
     min_relay_on_time_seconds: int | None = None
     min_relay_off_time_seconds: int | None = None
     relay_off_delay_seconds: int | None = None
