@@ -34,6 +34,7 @@ from .control_logic import (
 from .models import (
     AggregationMode,
     ControlType,
+    GlobalOverride,
     IntegrationConfig,
     LocalControlGroup,
     NumberSemanticType,
@@ -144,6 +145,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._last_commanded_climate_targets: dict[str, float] = {}
         self._last_commanded_climate_hvac_modes: dict[str, HVACMode] = {}
         self._relay_runtime_state = RelayRuntimeState(is_on=False)
+        self._global_override: GlobalOverride | None = None
+        self._global_force_off = False
 
     async def async_start(self) -> None:
         """Subscribe to state changes and run the initial evaluation."""
@@ -170,14 +173,54 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._cancel_recheck()
 
     @callback
-    def _async_handle_relevant_state_change(self, _event: Event[Any]) -> None:
+    def _async_handle_relevant_state_change(self, event: Event[Any]) -> None:
         """Reevaluate the system when a relevant entity changes."""
-        self.hass.async_create_task(self.async_request_refresh())
+        self._clear_override_on_target_change(event)
+        self.hass.async_create_task(self.async_refresh())
+
+    async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
+        """Enable or disable one configured zone."""
+        zone = self.get_zone_config(zone_name)
+        if zone is None or zone.enabled == enabled:
+            return
+
+        zone.enabled = enabled
+        await self.async_refresh()
+
+    async def async_set_global_force_off(self, enabled: bool) -> None:
+        """Enable or disable global force-off."""
+        if self._global_force_off == enabled:
+            return
+
+        self._global_force_off = enabled
+        await self.async_refresh()
+
+    async def async_set_global_override(self, target_temperature: float) -> None:
+        """Set the system-wide override temperature."""
+        self._global_override = GlobalOverride(target_temperature=target_temperature)
+        await self.async_refresh()
+
+    async def async_clear_global_override(self) -> None:
+        """Remove the system-wide override temperature."""
+        if self._global_override is None:
+            return
+
+        self._global_override = None
+        await self.async_refresh()
+
+    def get_zone_config(self, zone_name: str) -> ZoneConfig | None:
+        """Return one configured zone by name."""
+        for zone in self.config.zones:
+            if zone.name == zone_name:
+                return zone
+        return None
 
     async def _async_update_data(self) -> RuntimeSnapshot:
         """Build a snapshot, evaluate demand, and dispatch required commands."""
         now = self._utcnow()
         snapshot = self._build_runtime_snapshot()
+        snapshot.global_override = self._global_override
+        snapshot.global_force_off = self._global_force_off
         flow_value = snapshot.flow_value
 
         previous_relay_is_on = self._relay_runtime_state.is_on
@@ -214,6 +257,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 previous_demand=self._last_zone_demands.get(zone.name, False),
                 previous_group_demands=self._last_group_demands.get(zone.name),
                 hysteresis=self.config.default_hysteresis,
+                global_override=self._global_override,
                 global_frost_protection_min_temp=self.config.frost_protection_min_temp,
             )
             zone_evaluations.append(evaluation)
@@ -225,8 +269,9 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         snapshot.zone_evaluations = zone_evaluations
         snapshot.system_demand = aggregate_system_demand(zone_evaluations)
+        effective_system_demand = snapshot.system_demand and not self._global_force_off
         snapshot.relay_decision = decide_relay_action(
-            system_demand=snapshot.system_demand,
+            system_demand=effective_system_demand,
             relay_state=self._relay_runtime_state,
             now=now,
             min_relay_on_time_seconds=self.config.min_relay_on_time_seconds,
@@ -247,7 +292,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             off_requested_at=projected_relay_state.off_requested_at,
         )
         flow_warning = evaluate_missing_flow_warning(
-            system_demand=snapshot.system_demand,
+            system_demand=effective_system_demand,
             relay_state=projected_relay_state,
             now=now,
             flow_value=flow_value,
@@ -257,7 +302,10 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.missing_flow_warning = flow_warning.warning_active
         snapshot.missing_flow_warning_since = flow_warning.warning_since
 
-        await self._async_dispatch_zone_commands(zone_evaluations)
+        await self._async_dispatch_zone_commands(
+            zone_evaluations,
+            force_off=self._global_force_off,
+        )
         await self._async_dispatch_relay_command(snapshot.relay_decision, now)
         self._schedule_recheck(
             _earliest_datetime(
@@ -324,11 +372,55 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
-    async def _async_dispatch_zone_commands(self, zone_evaluations: list[ZoneEvaluation]) -> None:
+    def _clear_override_on_target_change(self, event: Event[Any]) -> None:
+        """Clear the global override when a zone target changes externally."""
+        if self._global_override is None:
+            return
+
+        entity_id = event.data.get("entity_id")
+        if entity_id is None:
+            return
+
+        zone_target_entity_ids = {zone.target_entity_id for zone in self.config.zones}
+        if entity_id not in zone_target_entity_ids:
+            return
+
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        if old_state is None or new_state is None:
+            return
+
+        old_temperature = self._extract_target_temperature(entity_id, old_state)
+        new_temperature = self._extract_target_temperature(entity_id, new_state)
+        if old_temperature == new_temperature:
+            return
+
+        self._global_override = None
+
+    def _extract_target_temperature(self, entity_id: str, state: Any) -> float | None:
+        """Read the comparable target value from a target entity state."""
+        if entity_id.split(".", 1)[0] == CLIMATE_DOMAIN:
+            return _as_float(state.attributes.get("temperature"))
+        return _as_float(state.state)
+
+    async def _async_dispatch_zone_commands(
+        self,
+        zone_evaluations: list[ZoneEvaluation],
+        *,
+        force_off: bool,
+    ) -> None:
         """Send zone-level actuator commands when outputs should change."""
         for zone, evaluation in zip(self.config.zones, zone_evaluations, strict=True):
             if zone.control_type is ControlType.CLIMATE:
-                await self._async_dispatch_climate_zone(zone, evaluation)
+                await self._async_dispatch_climate_zone(zone, evaluation, force_off=force_off)
+                continue
+
+            if force_off or not zone.enabled:
+                for group_config in zone.local_groups:
+                    if group_config.control_type is ControlType.SWITCH:
+                        await self._async_dispatch_switch_group(group_config, False)
+                    elif group_config.control_type is ControlType.NUMBER:
+                        await self._async_dispatch_number_group(group_config, False)
                 continue
 
             for group_config, group_evaluation in zip(
@@ -337,14 +429,22 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 strict=True,
             ):
                 if group_config.control_type is ControlType.SWITCH:
-                    await self._async_dispatch_switch_group(group_config, group_evaluation.demand)
+                    await self._async_dispatch_switch_group(
+                        group_config,
+                        group_evaluation.demand and not force_off,
+                    )
                 elif group_config.control_type is ControlType.NUMBER:
-                    await self._async_dispatch_number_group(group_config, group_evaluation.demand)
+                    await self._async_dispatch_number_group(
+                        group_config,
+                        group_evaluation.demand and not force_off,
+                    )
 
     async def _async_dispatch_climate_zone(
         self,
         zone: ZoneConfig,
         evaluation: ZoneEvaluation,
+        *,
+        force_off: bool,
     ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
         for entity_id in zone.climate_entity_ids:
@@ -360,7 +460,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
 
             hvac_modes = self._read_supported_hvac_modes(entity_id)
-            if evaluation.demand:
+            if evaluation.demand and not force_off:
                 if HVACMode.HEAT in hvac_modes and current_hvac_mode == HVACMode.OFF:
                     await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.HEAT)
 
