@@ -81,6 +81,7 @@ class IntegrationConfig:
     main_relay_entity_id: str | None = None
     flow_sensor_entity_id: str | None = None
     flow_detection_threshold: float | None = None
+    missing_flow_timeout_seconds: int | None = None
     zones: list[ZoneConfig] = field(default_factory=list)
     default_hysteresis: float = 0.3
     min_relay_on_time_seconds: int | None = None
@@ -164,11 +165,24 @@ class RelayDecision:
 
 
 @dataclass(slots=True)
+class FlowWarningDecision:
+    """Decision describing whether a missing-flow warning should be active."""
+
+    warning_active: bool
+    warning_since: datetime | None = None
+    next_recheck_at: datetime | None = None
+
+
+@dataclass(slots=True)
 class RuntimeSnapshot:
     """Current runtime state assembled from Home Assistant and control logic."""
 
     sensor_values: dict[str, float | None] = field(default_factory=dict)
     target_temperatures: dict[str, float | None] = field(default_factory=dict)
+    flow_value: float | None = None
+    flow_detected: bool = False
+    missing_flow_warning: bool = False
+    missing_flow_warning_since: datetime | None = None
     actuator_available_entity_ids: list[str] = field(default_factory=list)
     unavailable_entity_ids: list[str] = field(default_factory=list)
     zone_evaluations: list[ZoneEvaluation] = field(default_factory=list)

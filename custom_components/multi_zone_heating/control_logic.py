@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from .models import (
     AggregationMode,
+    FlowWarningDecision,
     GlobalOverride,
     LocalControlGroup,
     LocalControlGroupEvaluation,
@@ -259,6 +260,40 @@ def flow_threshold_reached(flow_value: float | None, flow_detection_threshold: f
     if flow_value is None or flow_detection_threshold is None:
         return False
     return flow_value >= flow_detection_threshold
+
+
+def evaluate_missing_flow_warning(
+    *,
+    system_demand: bool,
+    relay_state: RelayRuntimeState,
+    now: datetime,
+    flow_value: float | None = None,
+    flow_detection_threshold: float | None = None,
+    missing_flow_timeout_seconds: int | None = None,
+) -> FlowWarningDecision:
+    """Raise a warning only when heat demand persists without detected flow."""
+    if (
+        not system_demand
+        or not relay_state.is_on
+        or flow_detection_threshold is None
+        or missing_flow_timeout_seconds is None
+    ):
+        return FlowWarningDecision(warning_active=False)
+
+    if flow_threshold_reached(flow_value, flow_detection_threshold):
+        return FlowWarningDecision(warning_active=False)
+
+    warning_at = (relay_state.last_on_at or now) + timedelta(seconds=missing_flow_timeout_seconds)
+    if now < warning_at:
+        return FlowWarningDecision(
+            warning_active=False,
+            next_recheck_at=warning_at,
+        )
+
+    return FlowWarningDecision(
+        warning_active=True,
+        warning_since=warning_at,
+    )
 
 
 def decide_relay_action(

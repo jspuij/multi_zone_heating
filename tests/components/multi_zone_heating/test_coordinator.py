@@ -55,6 +55,15 @@ def _build_switch_config(*, relay_off_delay_seconds: int = 0) -> IntegrationConf
     )
 
 
+def _build_flow_warning_config(*, missing_flow_timeout_seconds: int) -> IntegrationConfig:
+    """Create a config that can raise a missing-flow warning."""
+    config = _build_switch_config()
+    config.flow_sensor_entity_id = "sensor.system_flow"
+    config.flow_detection_threshold = 1.5
+    config.missing_flow_timeout_seconds = missing_flow_timeout_seconds
+    return config
+
+
 def _register_recording_switch_services(hass) -> list[tuple[str, dict[str, str]]]:
     """Register fake switch services and record each invocation."""
     calls: list[tuple[str, dict[str, str]]] = []
@@ -176,6 +185,48 @@ async def test_coordinator_rechecks_relay_after_off_delay(hass, monkeypatch) -> 
     await hass.async_block_till_done()
 
     assert calls == [("turn_off", {"entity_id": "switch.boiler"})]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_raises_missing_flow_warning_after_timeout(hass, monkeypatch) -> None:
+    """Missing-flow warnings should trip on the scheduled timeout boundary."""
+    now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("input_number.living_room_target", "20.0")
+    hass.states.async_set("sensor.system_flow", "0.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "on")
+
+    calls = _register_recording_switch_services(hass)
+
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        _build_flow_warning_config(missing_flow_timeout_seconds=30),
+    )
+    monkeypatch.setattr(coordinator, "_utcnow", lambda: now)
+
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.flow_value == 0.0
+    assert coordinator.data.flow_detected is False
+    assert coordinator.data.missing_flow_warning is False
+    assert coordinator.data.missing_flow_warning_since is None
+    assert calls == [("turn_on", {"entity_id": "switch.radiator"})]
+
+    monkeypatch.setattr(
+        coordinator,
+        "_utcnow",
+        lambda: now + timedelta(seconds=30),
+    )
+    async_fire_time_changed(hass, now + timedelta(seconds=30))
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.missing_flow_warning is True
+    assert coordinator.data.missing_flow_warning_since == now + timedelta(seconds=30)
+    assert calls == [("turn_on", {"entity_id": "switch.radiator"})]
     await coordinator.async_stop()
 
 
@@ -423,6 +474,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
             "main_relay_entity_id": "switch.boiler",
             "flow_sensor_entity_id": "sensor.flow",
             "flow_detection_threshold": 1.5,
+            "missing_flow_timeout_seconds": 90,
             "default_hysteresis": 0.4,
             "min_relay_on_time_seconds": 60,
             "min_relay_off_time_seconds": 30,
@@ -461,6 +513,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
 
     assert config.main_relay_entity_id == "switch.boiler"
     assert config.flow_sensor_entity_id == "sensor.flow"
+    assert config.missing_flow_timeout_seconds == 90
     assert config.default_hysteresis == 0.4
     assert config.zones[0].control_type is ControlType.NUMBER
     assert config.zones[0].target_source is TargetSourceType.INPUT_NUMBER

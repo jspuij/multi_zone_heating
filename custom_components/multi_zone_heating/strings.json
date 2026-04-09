@@ -27,6 +27,7 @@
           "flow_sensor_entity_id": "Flow meter entity",
           "frost_protection_min_temp": "Global frost minimum",
           "main_relay_entity_id": "Main relay entity",
+          "missing_flow_timeout_seconds": "Missing flow timeout (seconds)",
           "min_relay_off_time_seconds": "Minimum relay off time (seconds)",
           "min_relay_on_time_seconds": "Minimum relay on time (seconds)",
           "name": "Name",

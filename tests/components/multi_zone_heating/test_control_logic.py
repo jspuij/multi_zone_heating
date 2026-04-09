@@ -10,6 +10,7 @@ from custom_components.multi_zone_heating.control_logic import (
     decide_relay_action,
     evaluate_hysteresis_demand,
     evaluate_local_control_group,
+    evaluate_missing_flow_warning,
     evaluate_zone,
     flow_threshold_reached,
     resolve_effective_target_temperature,
@@ -255,6 +256,62 @@ def test_flow_threshold_reached_requires_value_and_threshold() -> None:
     assert flow_threshold_reached(1.4, 1.5) is False
     assert flow_threshold_reached(None, 1.5) is False
     assert flow_threshold_reached(1.6, None) is False
+
+
+def test_missing_flow_warning_waits_for_timeout_then_turns_on() -> None:
+    """Missing-flow warnings should become active only after the timeout elapses."""
+    now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
+    relay_state = RelayRuntimeState(
+        is_on=True,
+        last_on_at=now,
+    )
+
+    pending = evaluate_missing_flow_warning(
+        system_demand=True,
+        relay_state=relay_state,
+        now=now,
+        flow_value=0.0,
+        flow_detection_threshold=1.5,
+        missing_flow_timeout_seconds=30,
+    )
+
+    assert pending.warning_active is False
+    assert pending.warning_since is None
+    assert pending.next_recheck_at == now + timedelta(seconds=30)
+
+    active = evaluate_missing_flow_warning(
+        system_demand=True,
+        relay_state=relay_state,
+        now=now + timedelta(seconds=30),
+        flow_value=0.0,
+        flow_detection_threshold=1.5,
+        missing_flow_timeout_seconds=30,
+    )
+
+    assert active.warning_active is True
+    assert active.warning_since == now + timedelta(seconds=30)
+    assert active.next_recheck_at is None
+
+
+def test_missing_flow_warning_is_suppressed_without_active_heat_demand() -> None:
+    """Unexpected domestic-water conditions should not create a heating warning."""
+    now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
+
+    decision = evaluate_missing_flow_warning(
+        system_demand=False,
+        relay_state=RelayRuntimeState(
+            is_on=False,
+            last_on_at=now - timedelta(minutes=5),
+        ),
+        now=now,
+        flow_value=0.0,
+        flow_detection_threshold=1.5,
+        missing_flow_timeout_seconds=30,
+    )
+
+    assert decision.warning_active is False
+    assert decision.warning_since is None
+    assert decision.next_recheck_at is None
 
 
 def test_relay_on_respects_minimum_off_time() -> None:
