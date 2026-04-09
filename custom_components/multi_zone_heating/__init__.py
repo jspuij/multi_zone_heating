@@ -24,7 +24,7 @@ async def async_setup_entry(
 ) -> bool:
     """Set up multi_zone_heating from a config entry."""
     config = integration_config_from_dict(entry.data)
-    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    coordinator = MultiZoneHeatingCoordinator(hass, config, config_entry=entry)
     entry.runtime_data = RuntimeData(
         config_entry_id=entry.entry_id,
         config=config,

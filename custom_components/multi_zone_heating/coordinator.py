@@ -8,6 +8,7 @@ import logging
 import math
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_HVAC_MODES,
@@ -119,9 +120,20 @@ def _as_int(value: Any) -> int | None:
 class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     """Observe runtime state, evaluate demand, and dispatch commands."""
 
-    def __init__(self, hass: HomeAssistant, config: IntegrationConfig) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config: IntegrationConfig,
+        *,
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass, _LOGGER, name="multi_zone_heating")
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="multi_zone_heating",
+            config_entry=config_entry,
+        )
         self.config = config
         self._unsub_state_changes: CALLBACK_TYPE | None = None
         self._unsub_recheck: CALLBACK_TYPE | None = None
@@ -142,6 +154,10 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 relevant_entity_ids,
                 self._async_handle_relevant_state_change,
             )
+
+        if self.config_entry is None:
+            await self.async_refresh()
+            return
 
         await self.async_config_entry_first_refresh()
 
