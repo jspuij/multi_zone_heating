@@ -11,6 +11,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,7 +20,7 @@ from .const import DOMAIN
 
 
 async def async_setup_entry(
-    hass,
+    hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -110,12 +111,14 @@ class MultiZoneHeatingSystemClimate(CoordinatorEntity, ClimateEntity):
     @property
     def min_temp(self) -> float:
         """Return the minimum target temperature the entity should expose."""
-        config_minimums = [
-            value
-            for value in [self.coordinator.config.frost_protection_min_temp]
-            + [zone.frost_protection_min_temp for zone in self.coordinator.config.zones]
-            if value is not None
-        ]
+        config_minimums = []
+        if self.coordinator.config.frost_protection_min_temp is not None:
+            config_minimums.append(self.coordinator.config.frost_protection_min_temp)
+        config_minimums.extend(
+            zone.frost_protection_min_temp
+            for zone in self.coordinator.config.zones
+            if zone.frost_protection_min_temp is not None
+        )
         return min(config_minimums, default=5.0)
 
     @property

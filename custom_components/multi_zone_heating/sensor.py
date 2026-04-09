@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -13,7 +14,7 @@ from .const import DOMAIN
 
 
 async def async_setup_entry(
-    hass,
+    hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:

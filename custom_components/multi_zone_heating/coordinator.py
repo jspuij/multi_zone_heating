@@ -176,7 +176,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     def _async_handle_relevant_state_change(self, event: Event[Any]) -> None:
         """Reevaluate the system when a relevant entity changes."""
         self._clear_override_on_target_change(event)
-        self.hass.async_create_task(self.async_refresh())
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
         """Enable or disable one configured zone."""
@@ -431,12 +431,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 if group_config.control_type is ControlType.SWITCH:
                     await self._async_dispatch_switch_group(
                         group_config,
-                        group_evaluation.demand and not force_off,
+                        group_evaluation.demand,
                     )
                 elif group_config.control_type is ControlType.NUMBER:
                     await self._async_dispatch_number_group(
                         group_config,
-                        group_evaluation.demand and not force_off,
+                        group_evaluation.demand,
                     )
 
     async def _async_dispatch_climate_zone(
