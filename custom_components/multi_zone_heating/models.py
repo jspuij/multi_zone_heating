@@ -96,6 +96,7 @@ class RuntimeData:
     """Runtime container attached to the config entry."""
 
     config_entry_id: str
+    title: str = ""
     config: IntegrationConfig = field(default_factory=IntegrationConfig)
     coordinator: MultiZoneHeatingCoordinator | None = None
 
@@ -179,6 +180,8 @@ class RuntimeSnapshot:
 
     sensor_values: dict[str, float | None] = field(default_factory=dict)
     target_temperatures: dict[str, float | None] = field(default_factory=dict)
+    global_override: GlobalOverride | None = None
+    global_force_off: bool = False
     flow_value: float | None = None
     flow_detected: bool = False
     missing_flow_warning: bool = False
