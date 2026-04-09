@@ -185,6 +185,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         zone.enabled = enabled
+        self._persist_zone_enabled(zone_name, enabled)
         await self.async_refresh()
 
     async def async_set_global_force_off(self, enabled: bool) -> None:
@@ -197,7 +198,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
     async def async_set_global_override(self, target_temperature: float) -> None:
         """Set the system-wide override temperature."""
-        self._global_override = GlobalOverride(target_temperature=target_temperature)
+        if self._global_override is None:
+            self._global_override = GlobalOverride(target_temperature=target_temperature)
+        else:
+            self._global_override.target_temperature = target_temperature
+            self._global_override.active = True
         await self.async_refresh()
 
     async def async_clear_global_override(self) -> None:
@@ -205,7 +210,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if self._global_override is None:
             return
 
-        self._global_override = None
+        self._global_override.active = False
         await self.async_refresh()
 
     def get_zone_config(self, zone_name: str) -> ZoneConfig | None:
@@ -374,7 +379,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
     def _clear_override_on_target_change(self, event: Event[Any]) -> None:
         """Clear the global override when a zone target changes externally."""
-        if self._global_override is None:
+        if self._global_override is None or not self._global_override.active:
             return
 
         entity_id = event.data.get("entity_id")
@@ -395,7 +400,27 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if old_temperature == new_temperature:
             return
 
-        self._global_override = None
+        self._global_override.active = False
+
+    def _persist_zone_enabled(self, zone_name: str, enabled: bool) -> None:
+        """Persist the zone-enabled flag into the config entry data."""
+        if self.config_entry is None:
+            return
+
+        zones = []
+        for zone_data in self.config_entry.data.get("zones", []):
+            updated_zone_data = dict(zone_data)
+            if updated_zone_data.get("name") == zone_name:
+                updated_zone_data["enabled"] = enabled
+            zones.append(updated_zone_data)
+
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={
+                **self.config_entry.data,
+                "zones": zones,
+            },
+        )
 
     def _extract_target_temperature(self, entity_id: str, state: Any) -> float | None:
         """Read the comparable target value from a target entity state."""

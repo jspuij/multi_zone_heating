@@ -82,11 +82,8 @@ class MultiZoneHeatingSystemClimate(CoordinatorEntity, ClimateEntity):
         data = self.coordinator.data
         if data is None:
             return None
-        if data.global_override is not None and data.global_override.active:
+        if data.global_override is not None:
             return data.global_override.target_temperature
-        for target_temperature in data.target_temperatures.values():
-            if target_temperature is not None:
-                return target_temperature
         return None
 
     @property

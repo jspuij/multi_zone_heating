@@ -104,7 +104,7 @@ async def test_system_climate_sets_and_clears_override(hass) -> None:
     climate_state = hass.states.get("climate.multi_zone_heating_system")
     assert climate_state is not None
     assert climate_state.attributes["override_active"] is False
-    assert climate_state.attributes["override_target_temperature"] is None
+    assert climate_state.attributes["override_target_temperature"] == 21.5
 
 
 async def test_zone_target_change_clears_override(hass) -> None:
@@ -128,12 +128,12 @@ async def test_zone_target_change_clears_override(hass) -> None:
     climate_state = hass.states.get("climate.multi_zone_heating_system")
     assert climate_state is not None
     assert climate_state.attributes["override_active"] is False
-    assert climate_state.attributes["override_target_temperature"] is None
+    assert climate_state.attributes["override_target_temperature"] == 21.5
 
 
 async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -> None:
     """Entity switches should disable zones and force outputs off."""
-    await _setup_loaded_entry(hass)
+    entry, _ = await _setup_loaded_entry(hass)
 
     await hass.services.async_call(
         "switch",
@@ -149,6 +149,7 @@ async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -
     assert zone_state.state == STATE_OFF
     assert system_state is not None
     assert system_state.state == STATE_OFF
+    assert entry.data["zones"][0]["enabled"] is False
 
     await hass.services.async_call(
         "switch",
@@ -165,3 +166,26 @@ async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -
     assert climate_state.attributes["global_force_off"] is True
     assert relay_state is not None
     assert relay_state.state == "forced_off"
+
+
+async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
+    """Zone enable changes should update the config entry data."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": "switch.multi_zone_heating_living_room_enabled"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert entry.data["zones"][0]["enabled"] is False
+
+    await hass.services.async_call(
+        "switch",
+        "turn_on",
+        {"entity_id": "switch.multi_zone_heating_living_room_enabled"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert entry.data["zones"][0]["enabled"] is True
