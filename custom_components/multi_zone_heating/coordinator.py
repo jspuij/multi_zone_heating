@@ -8,6 +8,7 @@ import logging
 import math
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_HVAC_MODES,
@@ -23,7 +24,13 @@ from homeassistant.helpers.event import async_track_point_in_utc_time, async_tra
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .control_logic import aggregate_system_demand, decide_relay_action, evaluate_zone
+from .control_logic import (
+    aggregate_system_demand,
+    decide_relay_action,
+    evaluate_missing_flow_warning,
+    evaluate_zone,
+    flow_threshold_reached,
+)
 from .models import (
     AggregationMode,
     ControlType,
@@ -47,6 +54,7 @@ def integration_config_from_dict(data: Mapping[str, Any]) -> IntegrationConfig:
         main_relay_entity_id=data.get("main_relay_entity_id"),
         flow_sensor_entity_id=data.get("flow_sensor_entity_id"),
         flow_detection_threshold=_as_float(data.get("flow_detection_threshold")),
+        missing_flow_timeout_seconds=_as_int(data.get("missing_flow_timeout_seconds")),
         zones=[_zone_from_dict(zone_data) for zone_data in data.get("zones", [])],
         default_hysteresis=float(data.get("default_hysteresis", 0.3)),
         min_relay_on_time_seconds=_as_int(data.get("min_relay_on_time_seconds")),
@@ -112,9 +120,20 @@ def _as_int(value: Any) -> int | None:
 class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     """Observe runtime state, evaluate demand, and dispatch commands."""
 
-    def __init__(self, hass: HomeAssistant, config: IntegrationConfig) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config: IntegrationConfig,
+        *,
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass, _LOGGER, name="multi_zone_heating")
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="multi_zone_heating",
+            config_entry=config_entry,
+        )
         self.config = config
         self._unsub_state_changes: CALLBACK_TYPE | None = None
         self._unsub_recheck: CALLBACK_TYPE | None = None
@@ -136,6 +155,10 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 self._async_handle_relevant_state_change,
             )
 
+        if self.config_entry is None:
+            await self.async_refresh()
+            return
+
         await self.async_config_entry_first_refresh()
 
     async def async_stop(self) -> None:
@@ -155,6 +178,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         """Build a snapshot, evaluate demand, and dispatch required commands."""
         now = self._utcnow()
         snapshot = self._build_runtime_snapshot()
+        flow_value = snapshot.flow_value
 
         previous_relay_is_on = self._relay_runtime_state.is_on
         current_relay_is_on = self._read_switch_state(self.config.main_relay_entity_id)
@@ -201,12 +225,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         snapshot.zone_evaluations = zone_evaluations
         snapshot.system_demand = aggregate_system_demand(zone_evaluations)
-        snapshot.relay_runtime_state = RelayRuntimeState(
-            is_on=self._relay_runtime_state.is_on,
-            last_on_at=self._relay_runtime_state.last_on_at,
-            last_off_at=self._relay_runtime_state.last_off_at,
-            off_requested_at=self._relay_runtime_state.off_requested_at,
-        )
         snapshot.relay_decision = decide_relay_action(
             system_demand=snapshot.system_demand,
             relay_state=self._relay_runtime_state,
@@ -214,13 +232,39 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             min_relay_on_time_seconds=self.config.min_relay_on_time_seconds,
             min_relay_off_time_seconds=self.config.min_relay_off_time_seconds,
             relay_off_delay_seconds=self.config.relay_off_delay_seconds,
-            flow_value=self._read_numeric_state(self.config.flow_sensor_entity_id),
+            flow_value=flow_value,
             flow_detection_threshold=self.config.flow_detection_threshold,
         )
+        projected_relay_state = _project_relay_runtime_state(
+            self._relay_runtime_state,
+            snapshot.relay_decision,
+            now,
+        )
+        snapshot.relay_runtime_state = RelayRuntimeState(
+            is_on=projected_relay_state.is_on,
+            last_on_at=projected_relay_state.last_on_at,
+            last_off_at=projected_relay_state.last_off_at,
+            off_requested_at=projected_relay_state.off_requested_at,
+        )
+        flow_warning = evaluate_missing_flow_warning(
+            system_demand=snapshot.system_demand,
+            relay_state=projected_relay_state,
+            now=now,
+            flow_value=flow_value,
+            flow_detection_threshold=self.config.flow_detection_threshold,
+            missing_flow_timeout_seconds=self.config.missing_flow_timeout_seconds,
+        )
+        snapshot.missing_flow_warning = flow_warning.warning_active
+        snapshot.missing_flow_warning_since = flow_warning.warning_since
 
         await self._async_dispatch_zone_commands(zone_evaluations)
         await self._async_dispatch_relay_command(snapshot.relay_decision, now)
-        self._schedule_recheck(snapshot.relay_decision.next_recheck_at if snapshot.relay_decision else None)
+        self._schedule_recheck(
+            _earliest_datetime(
+                snapshot.relay_decision.next_recheck_at if snapshot.relay_decision else None,
+                flow_warning.next_recheck_at,
+            )
+        )
         return snapshot
 
     def _build_runtime_snapshot(self) -> RuntimeSnapshot:
@@ -267,6 +311,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         if self.config.flow_sensor_entity_id:
             flow_value = self._read_numeric_state(self.config.flow_sensor_entity_id)
+            snapshot.flow_value = flow_value
+            snapshot.flow_detected = flow_threshold_reached(
+                flow_value,
+                self.config.flow_detection_threshold,
+            )
             snapshot.sensor_values[self.config.flow_sensor_entity_id] = flow_value
             if flow_value is None:
                 unavailable_entity_ids.add(self.config.flow_sensor_entity_id)
@@ -607,3 +656,43 @@ def _iter_relevant_entity_ids(config: IntegrationConfig) -> Iterable[str]:
         for group in zone.local_groups:
             yield from group.sensor_entity_ids
             yield from group.actuator_entity_ids
+
+
+def _project_relay_runtime_state(
+    relay_state: RelayRuntimeState,
+    relay_decision: RelayDecision | None,
+    now: datetime,
+) -> RelayRuntimeState:
+    """Project the relay runtime state after the current decision is applied."""
+    projected_state = RelayRuntimeState(
+        is_on=relay_state.is_on,
+        last_on_at=relay_state.last_on_at,
+        last_off_at=relay_state.last_off_at,
+        off_requested_at=relay_state.off_requested_at,
+    )
+    if relay_decision is None:
+        return projected_state
+
+    if relay_decision.should_turn_on:
+        projected_state.is_on = True
+        projected_state.last_on_at = now
+        projected_state.off_requested_at = None
+        return projected_state
+
+    if relay_decision.should_turn_off:
+        projected_state.is_on = False
+        projected_state.last_off_at = now
+        projected_state.off_requested_at = None
+        return projected_state
+
+    projected_state.is_on = relay_decision.resulting_state
+    projected_state.off_requested_at = relay_decision.off_requested_at
+    return projected_state
+
+
+def _earliest_datetime(*values: datetime | None) -> datetime | None:
+    """Return the earliest non-null recheck time."""
+    concrete_values = [value for value in values if value is not None]
+    if not concrete_values:
+        return None
+    return min(concrete_values)

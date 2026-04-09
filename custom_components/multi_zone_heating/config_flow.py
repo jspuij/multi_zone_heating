@@ -25,6 +25,7 @@ CONF_FROST_PROTECTION_MIN_TEMP = "frost_protection_min_temp"
 CONF_INACTIVE_VALUE = "inactive_value"
 CONF_LOCAL_GROUPS = "local_groups"
 CONF_MAIN_RELAY_ENTITY_ID = "main_relay_entity_id"
+CONF_MISSING_FLOW_TIMEOUT_SECONDS = "missing_flow_timeout_seconds"
 CONF_MIN_RELAY_OFF_TIME_SECONDS = "min_relay_off_time_seconds"
 CONF_MIN_RELAY_ON_TIME_SECONDS = "min_relay_on_time_seconds"
 CONF_NUMBER_SEMANTIC_TYPE = "number_semantic_type"
@@ -36,6 +37,7 @@ CONF_TARGET_SOURCE = "target_source"
 CONF_ZONES = "zones"
 
 DEFAULT_HYSTERESIS = 0.3
+DEFAULT_MISSING_FLOW_TIMEOUT_SECONDS = 60
 DEFAULT_MIN_RELAY_ON_TIME_SECONDS = 0
 DEFAULT_MIN_RELAY_OFF_TIME_SECONDS = 0
 DEFAULT_RELAY_OFF_DELAY_SECONDS = 0
@@ -71,6 +73,9 @@ class MultiZoneHeatingConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_MAIN_RELAY_ENTITY_ID: user_input[CONF_MAIN_RELAY_ENTITY_ID],
                     CONF_FLOW_SENSOR_ENTITY_ID: user_input.get(CONF_FLOW_SENSOR_ENTITY_ID),
                     CONF_FLOW_DETECTION_THRESHOLD: user_input.get(CONF_FLOW_DETECTION_THRESHOLD),
+                    CONF_MISSING_FLOW_TIMEOUT_SECONDS: int(
+                        user_input[CONF_MISSING_FLOW_TIMEOUT_SECONDS]
+                    ),
                     CONF_DEFAULT_HYSTERESIS: user_input[CONF_DEFAULT_HYSTERESIS],
                     CONF_MIN_RELAY_ON_TIME_SECONDS: int(user_input[CONF_MIN_RELAY_ON_TIME_SECONDS]),
                     CONF_MIN_RELAY_OFF_TIME_SECONDS: int(user_input[CONF_MIN_RELAY_OFF_TIME_SECONDS]),
@@ -250,6 +255,12 @@ class MultiZoneHeatingConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_FLOW_DETECTION_THRESHOLD): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, step="any", mode="box")
+                ),
+                vol.Required(
+                    CONF_MISSING_FLOW_TIMEOUT_SECONDS,
+                    default=DEFAULT_MISSING_FLOW_TIMEOUT_SECONDS,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, step=1, mode="box")
                 ),
                 vol.Required(
                     CONF_DEFAULT_HYSTERESIS, default=DEFAULT_HYSTERESIS
