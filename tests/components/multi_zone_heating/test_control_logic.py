@@ -314,6 +314,27 @@ def test_missing_flow_warning_is_suppressed_without_active_heat_demand() -> None
     assert decision.next_recheck_at is None
 
 
+def test_missing_flow_warning_clears_when_flow_recovers() -> None:
+    """An active missing-flow warning should clear once flow is detected."""
+    now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
+
+    decision = evaluate_missing_flow_warning(
+        system_demand=True,
+        relay_state=RelayRuntimeState(
+            is_on=True,
+            last_on_at=now - timedelta(minutes=2),
+        ),
+        now=now,
+        flow_value=1.6,
+        flow_detection_threshold=1.5,
+        missing_flow_timeout_seconds=30,
+    )
+
+    assert decision.warning_active is False
+    assert decision.warning_since is None
+    assert decision.next_recheck_at is None
+
+
 def test_relay_on_respects_minimum_off_time() -> None:
     """Relay turn-on should wait until the minimum off time has elapsed."""
     now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)

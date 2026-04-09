@@ -53,7 +53,7 @@ async def _start_basic_flow(hass, *, name: str = DEFAULT_TITLE):
         {
             CONF_NAME: name,
             CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
-            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 0,
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
             CONF_DEFAULT_HYSTERESIS: 0.3,
             CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
             CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
@@ -166,7 +166,7 @@ async def test_user_flow_creates_entry_for_switch_zone_with_local_group(hass) ->
         {
             CONF_NAME: "Switch System",
             CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
-            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 0,
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
             CONF_DEFAULT_HYSTERESIS: 0.3,
             CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
             CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
@@ -354,7 +354,7 @@ async def test_number_group_requires_number_values(hass) -> None:
         {
             CONF_NAME: DEFAULT_TITLE,
             CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
-            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 0,
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
             CONF_DEFAULT_HYSTERESIS: 0.3,
             CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
             CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
@@ -402,7 +402,7 @@ async def test_global_config_requires_flow_threshold_when_flow_sensor_is_set(has
             CONF_NAME: DEFAULT_TITLE,
             CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
             CONF_FLOW_SENSOR_ENTITY_ID: "sensor.system_flow",
-            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 0,
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
             CONF_DEFAULT_HYSTERESIS: 0.3,
             CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
             CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
@@ -496,7 +496,7 @@ async def test_climate_zone_requires_primary_sensor_when_primary_mode_selected(h
         {
             CONF_NAME: DEFAULT_TITLE,
             CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
-            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 0,
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
             CONF_DEFAULT_HYSTERESIS: 0.3,
             CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
             CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
