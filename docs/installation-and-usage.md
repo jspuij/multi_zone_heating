@@ -6,7 +6,7 @@ This guide covers the current first version of the `multi_zone_heating` custom H
 
 The integration evaluates heat demand across multiple configured zones and coordinates a shared main relay for the whole heating system.
 
-In version `0.1.0`, it can:
+In version `0.2.0`, it can:
 
 - read one or more temperature sensors per zone or local control group
 - read a target temperature from either a `climate` entity or a `number`/`input_number`
@@ -95,13 +95,13 @@ During the first step, the integration asks for:
 
 Each zone has a name, an enabled flag, a control type, a target source, and a target entity.
 
-Supported zone control types in `0.1.0`:
+Supported zone control types in `0.2.0`:
 
 - `climate`
 - `switch`
 - `number`
 
-Supported target sources in `0.1.0`:
+Supported target sources in `0.2.0`:
 
 - `climate`
 - `input_number`
@@ -171,7 +171,7 @@ A number zone is also built from one or more local control groups. For each grou
 - active value
 - inactive value
 
-In version `0.1.0`, both `active value` and `inactive value` are required.
+In version `0.2.0`, both `active value` and `inactive value` are required.
 
 Behavior:
 
@@ -293,7 +293,7 @@ Typical runtime usage is:
 
 ## First-Version Limitations
 
-Version `0.1.0` is usable, but it is still an early release. Current limits to document clearly:
+Version `0.2.0` is usable, but it is still an early release. Current limits to document clearly:
 
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
