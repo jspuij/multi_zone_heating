@@ -71,14 +71,11 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, "clear_override")
     return unloaded
 
-
 async def _async_clear_overrides(hass: HomeAssistant) -> None:
     """Clear runtime overrides for all loaded entries."""
     for runtime_data in hass.data.get(DOMAIN, {}).values():
         if runtime_data.coordinator is not None:
             await runtime_data.coordinator.async_clear_global_override()
-
-
 async def _async_update_listener(
     hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,

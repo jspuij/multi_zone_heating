@@ -828,6 +828,57 @@ async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> N
     ]
 
 
+async def test_options_flow_requires_local_group_before_finishing_non_climate_zone(hass) -> None:
+    """Switch and number zones should not be savable without a local group."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Original Heating",
+        data=_existing_config(),
+        version=1,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_ZONE},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ZONE: "0"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Bedroom",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.SWITCH,
+            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
+            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_REMOVE_GROUP},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_GROUP: "0"},
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "manage_local_groups"
+    assert result["errors"] == {"base": "zone_requires_local_groups"}
+
+
 async def test_single_instance_flow_aborts_when_entry_exists(hass, config_entry) -> None:
     """Only one config entry should be allowed."""
     config_entry.add_to_hass(hass)

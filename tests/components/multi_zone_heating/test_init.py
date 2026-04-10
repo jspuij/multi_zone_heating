@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_NAME
 
@@ -85,3 +87,24 @@ async def test_setup_entry_prefers_options_over_data(hass) -> None:
     assert config_entry.state is ConfigEntryState.LOADED
     assert config_entry.runtime_data.config.default_hysteresis == 0.6
     assert [zone.name for zone in config_entry.runtime_data.config.zones] == ["Living Room"]
+
+
+async def test_options_update_triggers_entry_reload(hass, config_entry) -> None:
+    """Updating entry options should reload the integration immediately."""
+    config_entry.add_to_hass(hass)
+
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        AsyncMock(return_value=True),
+    ) as mock_reload:
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hass.config_entries.async_update_entry(
+            config_entry,
+            options={CONF_DEFAULT_HYSTERESIS: 0.5},
+        )
+        await hass.async_block_till_done()
+
+    mock_reload.assert_awaited_once_with(config_entry.entry_id)

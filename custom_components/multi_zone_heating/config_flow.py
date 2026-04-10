@@ -932,13 +932,15 @@ class MultiZoneHeatingOptionsFlow(
                 self._clear_pending_zone()
                 return await self.async_step_init()
 
-        actions = [{"value": ACTION_ADD_GROUP, "label": "Add local group"}]
+        actions = [
+            {"value": ACTION_ADD_GROUP, "label": "Add local group"},
+            {"value": ACTION_DONE, "label": "Done with zone"},
+        ]
         if self._pending_local_groups:
             actions.extend(
                 [
                     {"value": ACTION_EDIT_GROUP, "label": "Edit local group"},
                     {"value": ACTION_REMOVE_GROUP, "label": "Remove local group"},
-                    {"value": ACTION_DONE, "label": "Done with zone"},
                 ]
             )
 
