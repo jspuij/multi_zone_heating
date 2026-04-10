@@ -1,0 +1,343 @@
+# Multi-Zone Heating Installation And Usage
+
+This guide covers the current first version of the `multi_zone_heating` custom Home Assistant integration.
+
+## What The Integration Does
+
+The integration evaluates heat demand across multiple configured zones and coordinates a shared main relay for the whole heating system.
+
+In version `0.1.0`, it can:
+
+- read one or more temperature sensors per zone or local control group
+- read a target temperature from either a `climate` entity or a `number`/`input_number`
+- drive one or more climate actuators for a climate-based zone
+- drive one or more switch actuators for a switch-based zone
+- drive one or more number actuators for a number-based zone
+- expose system-level control entities for override and force-off behavior
+- expose diagnostics for demand, relay state, and missing-flow warnings
+
+## Before You Start
+
+You should already have:
+
+- a working Home Assistant installation
+- the thermostat, valve, switch, number, and temperature-sensor entities you plan to use
+- a shared relay entity that enables or disables water flow for the whole heating system
+
+Optional but supported:
+
+- a flow sensor entity
+- target temperatures exposed through `climate`, `number`, or `input_number` entities
+
+## Installation
+
+The integration currently documents a manual installation flow.
+
+1. Open your Home Assistant configuration directory.
+2. Create `custom_components` if it does not already exist.
+3. Copy this repository's `custom_components/multi_zone_heating` directory into your Home Assistant configuration so the final path is:
+
+```text
+config/custom_components/multi_zone_heating/
+```
+
+4. Restart Home Assistant.
+5. In Home Assistant, go to `Settings -> Devices & services`.
+6. Select `Add Integration`.
+7. Search for `Multi-Zone Heating`.
+8. Complete the config flow described below.
+
+> Image placeholder: repository folder copied into `custom_components`
+>
+> Suggested screenshot: file browser view showing `config/custom_components/multi_zone_heating`
+
+> Image placeholder: Add Integration screen
+>
+> Suggested screenshot: Home Assistant `Devices & services` page with `Multi-Zone Heating` selected
+
+## Configuration Model
+
+Setup happens in two layers:
+
+- global system settings
+- one or more zones
+
+### Global Settings
+
+During the first step, the integration asks for:
+
+- `Main relay entity`
+  - Must be a `switch` entity.
+  - This is the shared relay for the heating system.
+- `Flow sensor entity`
+  - Optional.
+  - May be a `sensor`, `number`, or `input_number`.
+- `Flow detection threshold`
+  - Required if you configure a flow sensor.
+- `Missing flow timeout`
+  - How long demand may remain active without detected flow before a warning is raised.
+- `Default hysteresis`
+  - Used when deciding whether a zone should continue calling for heat.
+- `Minimum relay on time`
+  - Prevents short cycling after the relay turns on.
+- `Minimum relay off time`
+  - Prevents short cycling after the relay turns off.
+- `Relay off delay`
+  - Keeps the relay on briefly after demand stops.
+- `Frost protection minimum temperature`
+  - Optional system-wide minimum target floor.
+
+> Image placeholder: global settings form
+>
+> Suggested screenshot: config-flow page with relay, flow, hysteresis, and timing options
+
+### Zone Types
+
+Each zone has a name, an enabled flag, a control type, a target source, and a target entity.
+
+Supported zone control types in `0.1.0`:
+
+- `climate`
+- `switch`
+- `number`
+
+Supported target sources in `0.1.0`:
+
+- `climate`
+- `input_number`
+
+Even when the target source is called `input_number` in the UI, the integration accepts both `input_number.*` and `number.*` entities for that path.
+
+### Temperature Aggregation
+
+Where multiple sensors are configured, the integration supports:
+
+- `average`
+- `minimum`
+- `primary`
+
+If you choose `primary`, you must also select one of the configured sensors as the primary sensor.
+
+## How To Configure Each Zone Type
+
+### Climate Zone
+
+Use a climate zone when Home Assistant climate entities represent the heating actuators you want the integration to control.
+
+You will configure:
+
+- one or more temperature sensors
+- one or more climate actuator entities
+- optional climate off fallback temperature
+- aggregation mode
+- optional primary sensor
+
+Behavior:
+
+- when the zone demands heat, the integration pushes the effective target temperature to the configured climate entities
+- if the climate entity supports `heat`, it is switched from `off` to `heat` when demand starts
+- when demand stops, the integration turns the climate entity `off` if supported
+- if `off` is not supported, it can instead write the configured fallback temperature
+
+### Switch Zone
+
+Use a switch zone when the controlled outputs are plain `switch` entities such as zone valves, relays, or similar on/off actuators.
+
+A switch zone is built from one or more local control groups. For each group you configure:
+
+- a group name
+- one or more temperature sensors
+- one or more switch actuators
+- aggregation mode
+- optional primary sensor
+
+Behavior:
+
+- if the local group demands heat, its switches are turned on
+- if it does not demand heat, its switches are turned off
+
+### Number Zone
+
+Use a number zone when the actuator is driven by writing numeric values rather than on/off commands.
+
+A number zone is also built from one or more local control groups. For each group you configure:
+
+- a group name
+- one or more temperature sensors
+- one or more `number` or `input_number` actuators
+- aggregation mode
+- optional primary sensor
+- number semantic type
+- active value
+- inactive value
+
+In version `0.1.0`, both `active value` and `inactive value` are required.
+
+Behavior:
+
+- when the group demands heat, the integration writes the active value
+- when the group stops demanding heat, it writes the inactive value
+
+## Recommended Setup Flow
+
+1. Configure the global relay and optional flow monitoring first.
+2. Add one zone at a time.
+3. Start with a single-room test zone before adding the full house.
+4. Verify the created entities after setup.
+5. Only then tune hysteresis and relay timing protections.
+
+> Image placeholder: zone setup flow
+>
+> Suggested screenshot: one image for zone basics, one for climate zone details, one for local group details
+
+## Entities Created By The Integration
+
+After setup, the integration creates several runtime entities.
+
+### Climate
+
+- `climate.<entry>_system`
+  - exposed as the system climate entity
+  - setting its target temperature creates a system-wide override
+  - setting HVAC mode to `off` activates global force-off
+  - setting HVAC mode to `heat` clears global force-off
+
+Attributes include:
+
+- `override_active`
+- `override_target_temperature`
+- `zones_calling_for_heat`
+- `global_force_off`
+
+### Binary Sensors
+
+- `binary_sensor.<entry>_system_demand`
+  - `on` when any enabled zone demands heat
+- `binary_sensor.<entry>_<zone>_demand`
+  - one per zone
+  - `on` when that zone currently demands heat
+
+### Switches
+
+- `switch.<entry>_global_force_off`
+  - forces the system not to call for heat
+- `switch.<entry>_<zone>_enabled`
+  - enables or disables one configured zone
+
+Zone enabled state is persisted back into the config entry, so it survives reloads.
+
+### Sensor
+
+- `sensor.<entry>_relay_state`
+  - reports relay state as:
+    - `on`
+    - `off`
+    - `pending_off`
+    - `forced_off`
+
+Diagnostic attributes include:
+
+- `desired_on`
+- `hold_reason`
+- `missing_flow_warning`
+- `missing_flow_warning_since`
+- `flow_detected`
+- `flow_value`
+- `zones_calling_for_heat`
+
+## Services
+
+The integration registers this service:
+
+- `multi_zone_heating.clear_override`
+  - clears the active global override target temperature for all loaded integration entries
+
+Example service call:
+
+```yaml
+service: multi_zone_heating.clear_override
+data: {}
+```
+
+## Day-To-Day Usage
+
+Typical runtime usage is:
+
+1. Leave each zone target entity at its normal room target.
+2. Let the integration decide which zones currently demand heat.
+3. Use the system climate entity only when you want a temporary whole-system override.
+4. Use the global force-off switch when you want the whole system disabled without reconfiguring zones.
+5. Disable individual zones with their zone-enabled switches when needed.
+
+## Example Scenarios
+
+### Example 1: Climate-Based Radiator Zones
+
+- Each room has one or more temperature sensors.
+- Each room has one or more climate TRV entities.
+- Each room target comes from a climate entity.
+- The integration writes effective target temperatures to the TRVs and runs the shared boiler relay when any room demands heat.
+
+### Example 2: Switch-Driven Zone Valves
+
+- Each zone has temperature sensors.
+- Each zone uses one or more switch-controlled valves.
+- Zone targets come from `input_number` helpers.
+- The integration opens the right valves and enables the main relay only when needed.
+
+### Example 3: Number-Driven Actuators
+
+- Each zone has temperature sensors.
+- Each actuator is a `number` entity that expects one value when heating and another when idle.
+- The integration writes those values automatically based on demand.
+
+## First-Version Limitations
+
+Version `0.1.0` is usable, but it is still an early release. Current limits to document clearly:
+
+- installation is documented as manual copy-based setup
+- the integration manages a single config entry for one heating system
+- target-source options are limited to `climate` and `input_number`
+- dedicated `number` platform entities are not exposed yet, even though number actuators are supported
+- documentation screenshots are placeholders for now
+
+## Troubleshooting
+
+### The Integration Does Not Appear In Home Assistant
+
+- confirm the final path is `config/custom_components/multi_zone_heating`
+- confirm Home Assistant was restarted after copying files
+- check `Settings -> System -> Logs` for manifest or import errors
+
+### A Zone Never Calls For Heat
+
+- verify the zone is enabled
+- verify the target entity has a valid numeric target
+- verify the configured sensor entities have usable states
+- if using `primary` aggregation, confirm the chosen primary sensor is one of the configured sensors
+
+### The Relay Does Not Turn Off Immediately
+
+This can be expected if you configured:
+
+- minimum relay on time
+- relay off delay
+
+Check the relay-state sensor attributes, especially `hold_reason`.
+
+### Missing Flow Warning Is Active
+
+- verify the flow sensor entity is updating
+- verify the configured threshold matches the units and range of your sensor
+- confirm the relay is actually on and the physical system is circulating water
+
+## Suggested Documentation Images To Add Later
+
+- installation folder structure
+- add-integration flow
+- global settings form
+- climate-zone setup
+- switch-group setup
+- number-group setup
+- created entities in the device page
+- example dashboard card showing override and diagnostics

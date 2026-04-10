@@ -1,64 +1,64 @@
-# Thermostat
+# Multi-Zone Heating
 
-This repository contains the design and, later, the implementation of a custom Home Assistant integration for controlling a multi-zone heating system.
+`multi_zone_heating` is a custom Home Assistant integration for coordinating multiple heating zones behind a shared main relay.
 
-The target system has:
+Version `0.1.0` is the first working implementation. It supports UI-based setup, climate- and actuator-driven zones, a shared relay, optional flow diagnostics, and a small set of runtime control entities for overrides and operations.
 
-- Multiple heating zones
-- One or more room temperature sensors per zone
-- A thermostat target temperature per zone
-- One or more controllable thermostatic valves per zone
-- A shared relay that enables or disables water flow for the entire system
-- An optional flow meter for relay shutoff validation and flow diagnostics
+## Current Capabilities
 
-The integration will coordinate zone-level heat demand and whole-home water flow in a configurable, Home Assistant-native way.
-
-## Goals
-
-- Support multiple independent zones
-- Control a shared main relay based on aggregate heating demand
-- Keep configuration in the Home Assistant UI where possible
-- Expose clear entities for diagnostics, status, and overrides
-- Avoid relay chatter with hysteresis and minimum run/off times
-- Be flexible enough for different valve types and target sources
+- One Home Assistant config entry that manages the full heating system
+- Multiple zones with independent demand evaluation
+- A shared main relay that follows aggregate demand
+- Zone control via `climate`, `switch`, or `number` actuators
+- Zone targets sourced from either a `climate` entity or a `number`/`input_number`
+- Temperature aggregation using `average`, `minimum`, or `primary` sensor selection
+- Optional relay timing protections:
+  - minimum relay on time
+  - minimum relay off time
+  - relay off delay
+- Optional flow monitoring with missing-flow warnings
+- System-wide override temperature and global force-off control
+- Per-zone enable and disable control
 
 ## Documentation
 
-- [Integration design](/Users/jws/Projects/thermostat/docs/integration-design.md)
+- [Installation and usage guide](docs/installation-and-usage.md)
+- [Integration design](docs/integration-design.md)
+- [Implementation plan](docs/implementation-plan.md)
+- [User stories](docs/user-stories.md)
 
-## Development Setup
+## Install
+
+The first-version installation path is manual:
+
+1. Copy `custom_components/multi_zone_heating` into your Home Assistant `config/custom_components/` directory.
+2. Restart Home Assistant.
+3. Go to `Settings -> Devices & services -> Add Integration`.
+4. Search for `Multi-Zone Heating`.
+
+Full setup and usage details are in the [installation and usage guide](docs/installation-and-usage.md).
+
+## Runtime Entities
+
+Once configured, the integration creates:
+
+- One system climate entity for global override control
+- One system demand binary sensor
+- One zone demand binary sensor per configured zone
+- One global force-off switch
+- One zone enabled switch per configured zone
+- One relay-state diagnostic sensor
+
+It also registers the `multi_zone_heating.clear_override` service.
+
+## Development
 
 - Project Python tooling lives in `.venv/`.
 - Use the virtualenv executables directly for local checks, for example `.venv/bin/pytest`.
 - Run tests with the repository root on `PYTHONPATH` so `custom_components` imports resolve correctly.
 - Example: `PYTHONPATH=. .venv/bin/pytest -q`
 
-## Developer Notes
+## Notes
 
-- Home Assistant expects `custom_components/multi_zone_heating/strings.json` and `custom_components/multi_zone_heating/translations/en.json` to stay in sync. When config-flow copy changes, update both files together.
-
-## Planned Capabilities
-
-- Per-zone configuration for one or more sensor entities, one target, and one or more valve entities
-- Optional local control groups within a zone for `switch` and `number` actuators
-- Main relay control based on any active zone demand
-- Configurable hysteresis and timing safeguards
-- Optional flow-aware relay shutdown and warning state when demand has no flow
-- Manual override support
-- Optional maintenance and frost protection modes
-- Diagnostics for why heat is or is not active
-
-## Implementation Direction
-
-The preferred implementation is a custom Home Assistant integration under `custom_components/multi_zone_heating/`.
-
-The integration is expected to use:
-
-- A config flow for initial setup
-- An options flow for editing zones and control parameters
-- Coordinator-driven control logic
-- Entities for zone demand, system demand, and system state
-
-## Status
-
-This repository currently starts with the design phase. The next step is to refine the architecture and then scaffold the custom integration.
+- Home Assistant expects `custom_components/multi_zone_heating/strings.json` and `custom_components/multi_zone_heating/translations/en.json` to stay in sync. Update both files together when config-flow copy changes.
+- Version `0.1.0` is intentionally narrow. The integration is usable, but the documentation also calls out first-version limits so users know what is and is not implemented yet.
