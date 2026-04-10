@@ -29,6 +29,13 @@ The current target-entity model creates split ownership and subtle state drift. 
 - The resulting config model is consistent across setup, options, diagnostics, and tests
 - Migration behavior is documented in the repo
 
+## Migration Notes
+
+- New zones start with an integration-owned target of `20.0` C
+- If a global or zone frost minimum is higher than `20.0` C, that higher value becomes the initial target
+- Existing entries migrate by reading the current target from the old external target entity at migration time
+- If the old target entity has no usable current target state, migration fails so the entry is not silently changed
+
 ## Dependencies
 
 - ISSUE-001

@@ -19,7 +19,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.components.number import ATTR_VALUE, SERVICE_SET_VALUE
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -41,7 +41,6 @@ from .models import (
     RelayDecision,
     RelayRuntimeState,
     RuntimeSnapshot,
-    TargetSourceType,
     ZoneConfig,
     ZoneEvaluation,
 )
@@ -71,8 +70,7 @@ def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
     return ZoneConfig(
         name=str(data["name"]),
         control_type=ControlType(data["control_type"]),
-        target_source=TargetSourceType(data["target_source"]),
-        target_entity_id=str(data["target_entity_id"]),
+        target_temperature=_as_float(data.get("target_temperature")) or 20.0,
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
         climate_off_fallback_temperature=_as_float(
@@ -181,9 +179,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._cancel_recheck()
 
     @callback
-    def _async_handle_relevant_state_change(self, event: Event[Any]) -> None:
+    def _async_handle_relevant_state_change(self, _event: Any) -> None:
         """Reevaluate the system when a relevant entity changes."""
-        self._clear_override_on_target_change(event)
         self.hass.async_create_task(self.async_request_refresh())
 
     async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
@@ -336,8 +333,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         for zone in self.config.zones:
             snapshot.target_temperatures[zone.name] = self._read_target_temperature(zone)
-            if snapshot.target_temperatures[zone.name] is None:
-                unavailable_entity_ids.add(zone.target_entity_id)
 
             for sensor_entity_id in zone.sensor_entity_ids:
                 sensor_value = self._read_numeric_state(sensor_entity_id)
@@ -385,31 +380,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
-    def _clear_override_on_target_change(self, event: Event[Any]) -> None:
-        """Clear the global override when a zone target changes externally."""
-        if self._global_override is None or not self._global_override.active:
-            return
-
-        entity_id = event.data.get("entity_id")
-        if entity_id is None:
-            return
-
-        zone_target_entity_ids = {zone.target_entity_id for zone in self.config.zones}
-        if entity_id not in zone_target_entity_ids:
-            return
-
-        old_state = event.data.get("old_state")
-        new_state = event.data.get("new_state")
-        if old_state is None or new_state is None:
-            return
-
-        old_temperature = self._extract_target_temperature(entity_id, old_state)
-        new_temperature = self._extract_target_temperature(entity_id, new_state)
-        if old_temperature == new_temperature:
-            return
-
-        self._global_override.active = False
-
     def _persist_zone_enabled(self, zone_name: str, enabled: bool) -> None:
         """Persist the zone-enabled flag into the config entry data."""
         if self.config_entry is None:
@@ -429,12 +399,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 "zones": zones,
             },
         )
-
-    def _extract_target_temperature(self, entity_id: str, state: Any) -> float | None:
-        """Read the comparable target value from a target entity state."""
-        if entity_id.split(".", 1)[0] == CLIMATE_DOMAIN:
-            return _as_float(state.attributes.get("temperature"))
-        return _as_float(state.state)
 
     async def _async_dispatch_zone_commands(
         self,
@@ -676,15 +640,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             self._last_commanded_climate_hvac_modes.pop(entity_id, None)
 
     def _read_target_temperature(self, zone: ZoneConfig) -> float | None:
-        """Read the configured zone target from its source entity."""
-        state = self.hass.states.get(zone.target_entity_id)
-        if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
-            return None
-
-        if zone.target_source is TargetSourceType.CLIMATE:
-            return _as_float(state.attributes.get("temperature"))
-
-        return _as_float(state.state)
+        """Read the configured integration-owned zone target."""
+        return zone.target_temperature
 
     def _read_numeric_state(self, entity_id: str | None) -> float | None:
         """Read a numeric state from Home Assistant."""
@@ -783,7 +740,6 @@ def _iter_relevant_entity_ids(config: IntegrationConfig) -> Iterable[str]:
         yield config.flow_sensor_entity_id
 
     for zone in config.zones:
-        yield zone.target_entity_id
         yield from zone.sensor_entity_ids
         yield from zone.climate_entity_ids
         for group in zone.local_groups:
