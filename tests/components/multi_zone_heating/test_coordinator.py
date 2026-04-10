@@ -202,8 +202,8 @@ async def test_coordinator_dispatches_input_boolean_global_relay(hass) -> None:
     hass.states.async_set("switch.radiator", "off")
     hass.states.async_set("input_boolean.boiler_enable", "off")
 
-    _register_recording_switch_services(hass)
-    calls = _register_recording_toggle_services(hass, "input_boolean")
+    switch_calls = _register_recording_switch_services(hass)
+    relay_calls = _register_recording_toggle_services(hass, "input_boolean")
 
     config = _build_switch_config()
     config.main_relay_entity_id = "input_boolean.boiler_enable"
@@ -212,16 +212,20 @@ async def test_coordinator_dispatches_input_boolean_global_relay(hass) -> None:
     await coordinator.async_start()
     await hass.async_block_till_done()
 
-    assert calls == [("turn_on", {"entity_id": "input_boolean.boiler_enable"})]
+    assert switch_calls == [("turn_on", {"entity_id": "switch.radiator"})]
+    assert relay_calls == [("turn_on", {"entity_id": "input_boolean.boiler_enable"})]
 
     hass.states.async_set("sensor.living_room_temperature", "20.5")
+    hass.states.async_set("switch.radiator", "on")
     hass.states.async_set("input_boolean.boiler_enable", "on")
-    calls.clear()
+    switch_calls.clear()
+    relay_calls.clear()
 
     await coordinator.async_request_refresh()
     await hass.async_block_till_done()
 
-    assert calls == [("turn_off", {"entity_id": "input_boolean.boiler_enable"})]
+    assert switch_calls == [("turn_off", {"entity_id": "switch.radiator"})]
+    assert relay_calls == [("turn_off", {"entity_id": "input_boolean.boiler_enable"})]
     await coordinator.async_stop()
 
 
