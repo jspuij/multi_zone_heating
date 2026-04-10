@@ -105,6 +105,97 @@ async def test_system_climate_sets_and_clears_override(hass) -> None:
     assert climate_state.attributes["override_target_temperature"] == 21.5
 
 
+async def test_zone_climate_exposes_and_persists_owned_target(hass) -> None:
+    """Each zone should expose a climate entity with an owned target."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.state == "heat"
+    assert climate_state.attributes["temperature"] == 20.0
+    assert climate_state.attributes["current_temperature"] is None
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {
+            ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+            "temperature": 21.5,
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["temperature"] == 21.5
+    assert entry.data["zones"][0]["target_temperature"] == 21.5
+
+
+async def test_zone_climate_hvac_mode_toggles_zone_enabled(hass) -> None:
+    """Setting zone HVAC mode should enable and disable the owned zone."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {
+            ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+            "hvac_mode": "off",
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.state == "off"
+    assert entry.data["zones"][0]["enabled"] is False
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {
+            ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+            "hvac_mode": "heat",
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.state == "heat"
+    assert entry.data["zones"][0]["enabled"] is True
+
+
+async def test_zone_climate_target_restores_after_entry_reload(hass) -> None:
+    """Reloading the entry should restore the persisted owned zone target."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {
+            ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+            "temperature": 21.5,
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert entry.data["zones"][0]["target_temperature"] == 21.5
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["temperature"] == 21.5
+
+
 async def test_zone_target_change_clears_override(hass) -> None:
     """Clearing the override service should end the global override."""
     await _setup_loaded_entry(hass)
@@ -127,6 +218,127 @@ async def test_zone_target_change_clears_override(hass) -> None:
     assert climate_state is not None
     assert climate_state.attributes["override_active"] is False
     assert climate_state.attributes["override_target_temperature"] == 21.5
+
+
+async def test_zone_climate_current_temperature_uses_average_aggregation(hass) -> None:
+    """Zone climates should project the configured aggregated temperature."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Multi-Zone Heating",
+        data={
+            "main_relay_entity_id": "switch.boiler",
+            "default_hysteresis": 0.3,
+            "zones": [
+                {
+                    "name": "Living Room",
+                    "enabled": True,
+                    "control_type": "climate",
+                    "target_temperature": 20.0,
+                    "sensor_entity_ids": [
+                        "sensor.living_room_temperature",
+                        "sensor.living_room_corner_temperature",
+                    ],
+                    "aggregation_mode": "average",
+                    "climate_entity_ids": [],
+                }
+            ],
+        },
+        version=1,
+    )
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("sensor.living_room_corner_temperature", "21.0")
+    hass.states.async_set("switch.boiler", STATE_OFF)
+
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["current_temperature"] == 20.0
+    assert climate_state.attributes["aggregation_mode"] == "average"
+
+
+async def test_zone_climate_current_temperature_uses_primary_sensor(hass) -> None:
+    """Primary aggregation should expose the configured primary sensor directly."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Multi-Zone Heating",
+        data={
+            "main_relay_entity_id": "switch.boiler",
+            "default_hysteresis": 0.3,
+            "zones": [
+                {
+                    "name": "Living Room",
+                    "enabled": True,
+                    "control_type": "climate",
+                    "target_temperature": 20.0,
+                    "sensor_entity_ids": [
+                        "sensor.living_room_temperature",
+                        "sensor.living_room_corner_temperature",
+                    ],
+                    "aggregation_mode": "primary",
+                    "primary_sensor_entity_id": "sensor.living_room_corner_temperature",
+                    "climate_entity_ids": [],
+                }
+            ],
+        },
+        version=1,
+    )
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("sensor.living_room_corner_temperature", "21.0")
+    hass.states.async_set("switch.boiler", STATE_OFF)
+
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["current_temperature"] == 21.0
+    assert (
+        climate_state.attributes["primary_sensor_entity_id"]
+        == "sensor.living_room_corner_temperature"
+    )
+
+
+async def test_zone_climate_current_temperature_uses_minimum_aggregation(hass) -> None:
+    """Minimum aggregation should expose the coldest available sensor."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Multi-Zone Heating",
+        data={
+            "main_relay_entity_id": "switch.boiler",
+            "default_hysteresis": 0.3,
+            "zones": [
+                {
+                    "name": "Living Room",
+                    "enabled": True,
+                    "control_type": "climate",
+                    "target_temperature": 20.0,
+                    "sensor_entity_ids": [
+                        "sensor.living_room_temperature",
+                        "sensor.living_room_corner_temperature",
+                    ],
+                    "aggregation_mode": "minimum",
+                    "climate_entity_ids": [],
+                }
+            ],
+        },
+        version=1,
+    )
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("sensor.living_room_corner_temperature", "21.0")
+    hass.states.async_set("switch.boiler", STATE_OFF)
+
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["current_temperature"] == 19.0
+    assert climate_state.attributes["aggregation_mode"] == "minimum"
 
 
 async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -> None:
