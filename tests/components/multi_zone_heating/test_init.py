@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_NAME
 
 from custom_components.multi_zone_heating.const import DOMAIN
+from custom_components.multi_zone_heating.config_flow import (
+    CONF_AGGREGATION_MODE,
+    CONF_CLIMATE_ENTITY_IDS,
+    CONF_CONTROL_TYPE,
+    CONF_DEFAULT_HYSTERESIS,
+    CONF_ENABLED,
+    CONF_LOCAL_GROUPS,
+    CONF_PRIMARY_SENSOR_ENTITY_ID,
+    CONF_SENSOR_ENTITY_IDS,
+    CONF_TARGET_ENTITY_ID,
+    CONF_TARGET_SOURCE,
+    CONF_ZONES,
+)
 from custom_components.multi_zone_heating.coordinator import MultiZoneHeatingCoordinator
-from custom_components.multi_zone_heating.models import RuntimeData
+from custom_components.multi_zone_heating.models import (
+    AggregationMode,
+    ControlType,
+    RuntimeData,
+    TargetSourceType,
+)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 async def test_setup_and_unload_entry(hass, config_entry) -> None:
@@ -26,3 +48,63 @@ async def test_setup_and_unload_entry(hass, config_entry) -> None:
 
     assert config_entry.state is ConfigEntryState.NOT_LOADED
     assert DOMAIN in hass.config.components
+
+
+async def test_setup_entry_prefers_options_over_data(hass) -> None:
+    """Runtime config should honor full replacement config stored in entry options."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Multi-Zone Heating",
+        data={
+            CONF_DEFAULT_HYSTERESIS: 0.3,
+            CONF_ZONES: [],
+        },
+        options={
+            CONF_DEFAULT_HYSTERESIS: 0.6,
+            CONF_ZONES: [
+                {
+                    CONF_NAME: "Living Room",
+                    CONF_ENABLED: True,
+                    CONF_CONTROL_TYPE: ControlType.CLIMATE,
+                    CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
+                    CONF_TARGET_ENTITY_ID: "climate.living_room_target",
+                    CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
+                    CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+                    CONF_LOCAL_GROUPS: [],
+                    CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+                    CONF_PRIMARY_SENSOR_ENTITY_ID: None,
+                }
+            ],
+        },
+        version=1,
+        state=ConfigEntryState.NOT_LOADED,
+    )
+    config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert config_entry.runtime_data.config.default_hysteresis == 0.6
+    assert [zone.name for zone in config_entry.runtime_data.config.zones] == ["Living Room"]
+
+
+async def test_options_update_triggers_entry_reload(hass, config_entry) -> None:
+    """Updating entry options should reload the integration immediately."""
+    config_entry.add_to_hass(hass)
+
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        AsyncMock(return_value=True),
+    ) as mock_reload:
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hass.config_entries.async_update_entry(
+            config_entry,
+            options={CONF_DEFAULT_HYSTERESIS: 0.5},
+        )
+        await hass.async_block_till_done()
+
+    mock_reload.assert_awaited_once_with(config_entry.entry_id)

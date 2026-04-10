@@ -86,5 +86,117 @@
         }
       }
     }
+  },
+  "options": {
+    "error": {
+      "flow_threshold_required": "Provide a flow threshold when a flow sensor is configured.",
+      "group_name_required": "Each local control group needs a name.",
+      "group_requires_actuators": "Each local control group needs at least one actuator.",
+      "group_requires_sensors": "Each local control group needs at least one temperature sensor.",
+      "number_values_required": "Number control groups need active and inactive values.",
+      "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
+      "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
+      "target_entity_domain_mismatch": "The target entity must match the selected target source type.",
+      "zone_name_required": "Each zone needs a name.",
+      "zone_requires_climate_entities": "Climate zones need at least one climate entity.",
+      "zone_requires_local_groups": "Switch and number zones need at least one local control group.",
+      "zone_requires_sensors": "Climate zones need at least one temperature sensor."
+    },
+    "step": {
+      "init": {
+        "title": "Edit Multi-Zone Heating",
+        "description": "Choose what part of the integration configuration to edit.",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "edit_globals": {
+        "title": "Edit Global Settings",
+        "description": "Update shared relay, flow, timing, and frost settings.",
+        "data": {
+          "default_hysteresis": "Default hysteresis",
+          "flow_detection_threshold": "Flow detection threshold",
+          "flow_sensor_entity_id": "Flow meter entity",
+          "frost_protection_min_temp": "Global frost minimum",
+          "main_relay_entity_id": "Main relay entity",
+          "min_relay_off_time_seconds": "Minimum relay off time (seconds)",
+          "min_relay_on_time_seconds": "Minimum relay on time (seconds)",
+          "name": "Name",
+          "relay_off_delay_seconds": "Relay off delay (seconds)"
+        }
+      },
+      "select_zone_to_edit": {
+        "title": "Select Zone",
+        "description": "Choose the zone you want to edit.",
+        "data": {
+          "zone": "Zone"
+        }
+      },
+      "select_zone_to_remove": {
+        "title": "Remove Zone",
+        "description": "Choose the zone you want to remove.",
+        "data": {
+          "zone": "Zone"
+        }
+      },
+      "zone": {
+        "title": "Edit Zone",
+        "description": "Update the shared settings for this heating zone.",
+        "data": {
+          "control_type": "Control type",
+          "enabled": "Enabled",
+          "frost_protection_min_temp": "Zone frost minimum",
+          "name": "Zone name",
+          "target_entity_id": "Target entity",
+          "target_source": "Target source"
+        }
+      },
+      "climate_zone": {
+        "title": "Climate Zone Details",
+        "description": "Choose the sensors and climate entities used by this zone.",
+        "data": {
+          "aggregation_mode": "Temperature aggregation mode",
+          "climate_entity_ids": "Climate entities",
+          "climate_off_fallback_temperature": "Fallback target when off is unsupported",
+          "primary_sensor_entity_id": "Primary sensor",
+          "sensor_entity_ids": "Temperature sensors"
+        }
+      },
+      "manage_local_groups": {
+        "title": "Manage Local Groups",
+        "description": "Add, edit, or remove the local control groups for this zone.",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "select_group_to_edit": {
+        "title": "Select Local Group",
+        "description": "Choose the local group you want to edit.",
+        "data": {
+          "group": "Local group"
+        }
+      },
+      "select_group_to_remove": {
+        "title": "Remove Local Group",
+        "description": "Choose the local group you want to remove.",
+        "data": {
+          "group": "Local group"
+        }
+      },
+      "local_group": {
+        "title": "Local Control Group",
+        "description": "Configure one local sensor-and-actuator group for this zone.",
+        "data": {
+          "active_value": "Active value",
+          "actuator_entity_ids": "Actuator entities",
+          "aggregation_mode": "Temperature aggregation mode",
+          "inactive_value": "Inactive value",
+          "name": "Group name",
+          "number_semantic_type": "Number semantic type",
+          "primary_sensor_entity_id": "Primary sensor",
+          "sensor_entity_ids": "Temperature sensors"
+        }
+      }
+    }
   }
 }

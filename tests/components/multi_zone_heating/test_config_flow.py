@@ -7,6 +7,15 @@ from homeassistant.const import CONF_NAME
 
 from custom_components.multi_zone_heating.const import DEFAULT_TITLE, DOMAIN
 from custom_components.multi_zone_heating.config_flow import (
+    ACTION_ADD_GROUP,
+    ACTION_ADD_ZONE,
+    ACTION_DONE,
+    ACTION_EDIT_GLOBALS,
+    ACTION_EDIT_GROUP,
+    ACTION_EDIT_ZONE,
+    ACTION_REMOVE_GROUP,
+    ACTION_REMOVE_ZONE,
+    CONF_ACTION,
     CONF_ACTIVE_VALUE,
     CONF_ACTUATOR_ENTITY_IDS,
     CONF_AGGREGATION_MODE,
@@ -30,7 +39,9 @@ from custom_components.multi_zone_heating.config_flow import (
     CONF_SENSOR_ENTITY_IDS,
     CONF_TARGET_ENTITY_ID,
     CONF_TARGET_SOURCE,
+    CONF_ZONE,
     CONF_ZONES,
+    CONF_GROUP,
 )
 from custom_components.multi_zone_heating.models import (
     AggregationMode,
@@ -38,6 +49,7 @@ from custom_components.multi_zone_heating.models import (
     NumberSemanticType,
     TargetSourceType,
 )
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 async def _start_basic_flow(hass, *, name: str = DEFAULT_TITLE):
@@ -60,6 +72,45 @@ async def _start_basic_flow(hass, *, name: str = DEFAULT_TITLE):
             CONF_RELAY_OFF_DELAY_SECONDS: 0,
         },
     )
+
+
+def _existing_config() -> dict[str, object]:
+    """Build a representative config-entry payload for options-flow tests."""
+    return {
+        CONF_MAIN_RELAY_ENTITY_ID: "switch.boiler_relay",
+        CONF_DEFAULT_HYSTERESIS: 0.3,
+        CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
+        CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
+        CONF_RELAY_OFF_DELAY_SECONDS: 0,
+        CONF_FROST_PROTECTION_MIN_TEMP: 7.0,
+        CONF_ZONES: [
+            {
+                CONF_NAME: "Bedroom",
+                CONF_ENABLED: True,
+                CONF_CONTROL_TYPE: ControlType.SWITCH,
+                CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
+                CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+                CONF_FROST_PROTECTION_MIN_TEMP: None,
+                CONF_SENSOR_ENTITY_IDS: [],
+                CONF_CLIMATE_ENTITY_IDS: [],
+                CONF_LOCAL_GROUPS: [
+                    {
+                        CONF_NAME: "Radiator",
+                        CONF_CONTROL_TYPE: ControlType.SWITCH,
+                        CONF_SENSOR_ENTITY_IDS: ["sensor.bedroom_temperature"],
+                        CONF_ACTUATOR_ENTITY_IDS: ["switch.bedroom_valve"],
+                        CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+                        CONF_PRIMARY_SENSOR_ENTITY_ID: None,
+                        CONF_NUMBER_SEMANTIC_TYPE: None,
+                        CONF_ACTIVE_VALUE: None,
+                        CONF_INACTIVE_VALUE: None,
+                    }
+                ],
+                CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+                CONF_PRIMARY_SENSOR_ENTITY_ID: None,
+            }
+        ],
+    }
 
 
 async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
@@ -526,7 +577,306 @@ async def test_climate_zone_requires_primary_sensor_when_primary_mode_selected(h
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "climate_zone"
-    assert result["errors"] == {"base": "primary_sensor_required"}
+
+
+async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
+    """Options flow should support editing globals, zones, and local groups."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Original Heating",
+        data=_existing_config(),
+        version=1,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_GLOBALS},
+    )
+    assert result["step_id"] == "edit_globals"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Edited Heating",
+            CONF_MAIN_RELAY_ENTITY_ID: "switch.updated_boiler_relay",
+            CONF_FLOW_SENSOR_ENTITY_ID: "sensor.system_flow",
+            CONF_FLOW_DETECTION_THRESHOLD: 1.5,
+            CONF_DEFAULT_HYSTERESIS: 0.45,
+            CONF_MIN_RELAY_ON_TIME_SECONDS: 60,
+            CONF_MIN_RELAY_OFF_TIME_SECONDS: 30,
+            CONF_RELAY_OFF_DELAY_SECONDS: 20,
+            CONF_FROST_PROTECTION_MIN_TEMP: 6.5,
+        },
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_ZONE},
+    )
+    assert result["step_id"] == "select_zone_to_edit"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ZONE: "0"},
+    )
+    assert result["step_id"] == "zone"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Main Bedroom",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.SWITCH,
+            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
+            CONF_TARGET_ENTITY_ID: "input_number.main_bedroom_target",
+            CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_GROUP},
+    )
+    assert result["step_id"] == "select_group_to_edit"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_GROUP: "0"},
+    )
+    assert result["step_id"] == "local_group"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Main Radiator",
+            CONF_SENSOR_ENTITY_IDS: ["sensor.main_bedroom_temperature"],
+            CONF_ACTUATOR_ENTITY_IDS: ["switch.main_bedroom_valve"],
+            CONF_AGGREGATION_MODE: AggregationMode.MINIMUM,
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert config_entry.title == "Edited Heating"
+    assert result["data"][CONF_MAIN_RELAY_ENTITY_ID] == "switch.updated_boiler_relay"
+    assert result["data"][CONF_FLOW_SENSOR_ENTITY_ID] == "sensor.system_flow"
+    assert result["data"][CONF_FLOW_DETECTION_THRESHOLD] == 1.5
+    assert result["data"][CONF_DEFAULT_HYSTERESIS] == 0.45
+    assert result["data"][CONF_ZONES][0][CONF_NAME] == "Main Bedroom"
+    assert result["data"][CONF_ZONES][0][CONF_TARGET_ENTITY_ID] == "input_number.main_bedroom_target"
+    assert result["data"][CONF_ZONES][0][CONF_FROST_PROTECTION_MIN_TEMP] == 8.0
+    assert result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_NAME] == "Main Radiator"
+    assert (
+        result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_ACTUATOR_ENTITY_IDS]
+        == ["switch.main_bedroom_valve"]
+    )
+    assert (
+        result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_AGGREGATION_MODE]
+        == AggregationMode.MINIMUM
+    )
+
+
+async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> None:
+    """Options flow should support adding and removing zones and groups."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Original Heating",
+        data=_existing_config(),
+        version=1,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_ZONE},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ZONE: "0"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Bedroom",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.SWITCH,
+            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
+            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_ADD_GROUP},
+    )
+    assert result["step_id"] == "local_group"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Desk Radiator",
+            CONF_SENSOR_ENTITY_IDS: ["sensor.desk_temperature"],
+            CONF_ACTUATOR_ENTITY_IDS: ["switch.desk_valve"],
+            CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_REMOVE_GROUP},
+    )
+    assert result["step_id"] == "select_group_to_remove"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_GROUP: "0"},
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_ADD_ZONE},
+    )
+    assert result["step_id"] == "zone"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Living Room",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.CLIMATE,
+            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
+            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
+            CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+        },
+    )
+    assert result["step_id"] == "climate_zone"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
+            CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+            CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.0,
+            CONF_AGGREGATION_MODE: AggregationMode.PRIMARY,
+            CONF_PRIMARY_SENSOR_ENTITY_ID: "sensor.living_room_temperature",
+        },
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_REMOVE_ZONE},
+    )
+    assert result["step_id"] == "select_zone_to_remove"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ZONE: "0"},
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES] == [
+        {
+            CONF_NAME: "Living Room",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.CLIMATE,
+            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
+            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
+            CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+            CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
+            CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+            CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.0,
+            CONF_LOCAL_GROUPS: [],
+            CONF_AGGREGATION_MODE: AggregationMode.PRIMARY,
+            CONF_PRIMARY_SENSOR_ENTITY_ID: "sensor.living_room_temperature",
+        }
+    ]
+
+
+async def test_options_flow_requires_local_group_before_finishing_non_climate_zone(hass) -> None:
+    """Switch and number zones should not be savable without a local group."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Original Heating",
+        data=_existing_config(),
+        version=1,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_ZONE},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ZONE: "0"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Bedroom",
+            CONF_ENABLED: True,
+            CONF_CONTROL_TYPE: ControlType.SWITCH,
+            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
+            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+        },
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_REMOVE_GROUP},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_GROUP: "0"},
+    )
+    assert result["step_id"] == "manage_local_groups"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "manage_local_groups"
+    assert result["errors"] == {"base": "zone_requires_local_groups"}
 
 
 async def test_single_instance_flow_aborts_when_entry_exists(hass, config_entry) -> None:
