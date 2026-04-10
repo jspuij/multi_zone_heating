@@ -66,6 +66,13 @@ def _build_flow_warning_config(*, missing_flow_timeout_seconds: int) -> Integrat
 
 def _register_recording_switch_services(hass) -> list[tuple[str, dict[str, str]]]:
     """Register fake switch services and record each invocation."""
+    return _register_recording_toggle_services(hass, "switch")
+
+
+def _register_recording_toggle_services(
+    hass, domain: str
+) -> list[tuple[str, dict[str, str]]]:
+    """Register fake on/off services and record each invocation."""
     calls: list[tuple[str, dict[str, str]]] = []
 
     async def _record_turn_on(call: ServiceCall) -> None:
@@ -74,8 +81,8 @@ def _register_recording_switch_services(hass) -> list[tuple[str, dict[str, str]]
     async def _record_turn_off(call: ServiceCall) -> None:
         calls.append(("turn_off", dict(call.data)))
 
-    hass.services.async_register("switch", "turn_on", _record_turn_on)
-    hass.services.async_register("switch", "turn_off", _record_turn_off)
+    hass.services.async_register(domain, "turn_on", _record_turn_on)
+    hass.services.async_register(domain, "turn_off", _record_turn_off)
     return calls
 
 
@@ -185,6 +192,36 @@ async def test_coordinator_rechecks_relay_after_off_delay(hass, monkeypatch) -> 
     await hass.async_block_till_done()
 
     assert calls == [("turn_off", {"entity_id": "switch.boiler"})]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_dispatches_input_boolean_global_relay(hass) -> None:
+    """The main relay may be backed by an input_boolean helper."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("input_number.living_room_target", "20.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("input_boolean.boiler_enable", "off")
+
+    _register_recording_switch_services(hass)
+    calls = _register_recording_toggle_services(hass, "input_boolean")
+
+    config = _build_switch_config()
+    config.main_relay_entity_id = "input_boolean.boiler_enable"
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert calls == [("turn_on", {"entity_id": "input_boolean.boiler_enable"})]
+
+    hass.states.async_set("sensor.living_room_temperature", "20.5")
+    hass.states.async_set("input_boolean.boiler_enable", "on")
+    calls.clear()
+
+    await coordinator.async_request_refresh()
+    await hass.async_block_till_done()
+
+    assert calls == [("turn_off", {"entity_id": "input_boolean.boiler_enable"})]
     await coordinator.async_stop()
 
 

@@ -78,7 +78,7 @@ class _MultiZoneHeatingFlowBase:
             {
                 vol.Optional(CONF_NAME, default=DEFAULT_TITLE): str,
                 vol.Required(CONF_MAIN_RELAY_ENTITY_ID): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["switch"])
+                    selector.EntitySelectorConfig(domain=["switch", "input_boolean"])
                 ),
                 vol.Optional(CONF_FLOW_SENSOR_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["sensor", "number", "input_number"])

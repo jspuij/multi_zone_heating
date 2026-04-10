@@ -468,7 +468,7 @@ These are the main choices we should resolve before implementation:
 
 To keep the first implementation manageable:
 
-- Support one main relay switch
+- Support one main relay `switch` or `input_boolean`
 - Support one optional numeric flow meter and configurable detection threshold
 - Support multiple zones
 - Support one or more temperature sensors per zone

@@ -73,7 +73,6 @@ async def _start_basic_flow(hass, *, name: str = DEFAULT_TITLE):
         },
     )
 
-
 def _existing_config() -> dict[str, object]:
     """Build a representative config-entry payload for options-flow tests."""
     return {
@@ -111,6 +110,32 @@ def _existing_config() -> dict[str, object]:
             }
         ],
     }
+
+
+async def test_user_flow_accepts_input_boolean_for_main_relay(hass) -> None:
+    """The global relay selector should accept input_boolean helpers."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Helper Relay",
+            CONF_MAIN_RELAY_ENTITY_ID: "input_boolean.boiler_enable",
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
+            CONF_DEFAULT_HYSTERESIS: 0.3,
+            CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
+            CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
+            CONF_RELAY_OFF_DELAY_SECONDS: 0,
+        },
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "zone"
 
 
 async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
