@@ -21,7 +21,6 @@ from custom_components.multi_zone_heating.models import (
     GlobalOverride,
     LocalControlGroup,
     RelayRuntimeState,
-    TargetSourceType,
     ZoneConfig,
 )
 
@@ -100,8 +99,7 @@ def test_switch_zone_demand_is_aggregated_from_local_groups() -> None:
     zone = ZoneConfig(
         name="Bedroom",
         control_type=ControlType.SWITCH,
-        target_source=TargetSourceType.INPUT_NUMBER,
-        target_entity_id="input_number.bedroom_target",
+        target_temperature=20.0,
         local_groups=[
             LocalControlGroup(
                 name="Radiator",
@@ -171,8 +169,7 @@ def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
     zone = ZoneConfig(
         name="Living Room",
         control_type=ControlType.CLIMATE,
-        target_source=TargetSourceType.CLIMATE,
-        target_entity_id="climate.living_room",
+        target_temperature=20.0,
         sensor_entity_ids=["sensor.a", "sensor.b"],
         aggregation_mode=AggregationMode.AVERAGE,
     )
@@ -198,8 +195,7 @@ def test_zone_demand_turns_off_when_no_actuators_are_available() -> None:
     zone = ZoneConfig(
         name="Bedroom",
         control_type=ControlType.SWITCH,
-        target_source=TargetSourceType.INPUT_NUMBER,
-        target_entity_id="input_number.bedroom_target",
+        target_temperature=20.0,
         local_groups=[
             LocalControlGroup(
                 name="Radiator",
@@ -231,8 +227,7 @@ def test_disabled_zone_stays_off() -> None:
     zone = ZoneConfig(
         name="Study",
         control_type=ControlType.CLIMATE,
-        target_source=TargetSourceType.CLIMATE,
-        target_entity_id="climate.study",
+        target_temperature=20.0,
         sensor_entity_ids=["sensor.study"],
         aggregation_mode=AggregationMode.AVERAGE,
         enabled=False,

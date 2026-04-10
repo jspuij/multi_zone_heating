@@ -93,7 +93,7 @@ During the first step, the integration asks for:
 
 ### Zone Types
 
-Each zone has a name, an enabled flag, a control type, a target source, and a target entity.
+Each zone has a name, an enabled flag, a control type, and an integration-owned target temperature.
 
 Supported zone control types in `0.2.0`:
 
@@ -101,12 +101,7 @@ Supported zone control types in `0.2.0`:
 - `switch`
 - `number`
 
-Supported target sources in `0.2.0`:
-
-- `climate`
-- `input_number`
-
-Even when the target source is called `input_number` in the UI, the integration accepts both `input_number.*` and `number.*` entities for that path.
+New zones start at `20.0` degrees Celsius. If the global or zone frost minimum is higher than `20.0`, that higher value becomes the initial zone target instead.
 
 ### Temperature Aggregation
 
@@ -263,7 +258,7 @@ data: {}
 
 Typical runtime usage is:
 
-1. Leave each zone target entity at its normal room target.
+1. Leave each zone target at its normal room target.
 2. Let the integration decide which zones currently demand heat.
 3. Use the system climate entity only when you want a temporary whole-system override.
 4. Use the global force-off switch when you want the whole system disabled without reconfiguring zones.
@@ -275,14 +270,14 @@ Typical runtime usage is:
 
 - Each room has one or more temperature sensors.
 - Each room has one or more climate TRV entities.
-- Each room target comes from a climate entity.
+- Each room target is owned by the integration.
 - The integration writes effective target temperatures to the TRVs and runs the shared boiler relay when any room demands heat.
 
 ### Example 2: Switch-Driven Zone Valves
 
 - Each zone has temperature sensors.
 - Each zone uses one or more switch-controlled valves.
-- Zone targets come from `input_number` helpers.
+- Zone targets are owned by the integration and shared across local groups.
 - The integration opens the right valves and enables the main relay only when needed.
 
 ### Example 3: Number-Driven Actuators
@@ -297,7 +292,7 @@ Version `0.2.0` is usable, but it is still an early release. Current limits to d
 
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
-- target-source options are limited to `climate` and `input_number`
+- zone targets are stored by the integration instead of external helper or climate entities
 - dedicated `number` platform entities are not exposed yet, even though number actuators are supported
 - documentation screenshots are placeholders for now
 
@@ -312,7 +307,7 @@ Version `0.2.0` is usable, but it is still an early release. Current limits to d
 ### A Zone Never Calls For Heat
 
 - verify the zone is enabled
-- verify the target entity has a valid numeric target
+- verify the zone has a valid target temperature
 - verify the configured sensor entities have usable states
 - if using `primary` aggregation, confirm the chosen primary sensor is one of the configured sensors
 

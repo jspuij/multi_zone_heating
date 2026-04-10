@@ -24,7 +24,6 @@ from custom_components.multi_zone_heating.models import (
     IntegrationConfig,
     LocalControlGroup,
     NumberSemanticType,
-    TargetSourceType,
     ZoneConfig,
 )
 
@@ -39,8 +38,7 @@ def _build_switch_config(*, relay_off_delay_seconds: int = 0) -> IntegrationConf
             ZoneConfig(
                 name="Living Room",
                 control_type=ControlType.SWITCH,
-                target_source=TargetSourceType.INPUT_NUMBER,
-                target_entity_id="input_number.living_room_target",
+                target_temperature=20.0,
                 local_groups=[
                     LocalControlGroup(
                         name="Radiator",
@@ -118,7 +116,6 @@ async def test_coordinator_dispatches_switch_group_and_relay_once_until_state_ch
 ) -> None:
     """Repeated reevaluations should not spam duplicate commands."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("switch.radiator", "off")
     hass.states.async_set("switch.boiler", "off")
 
@@ -143,7 +140,6 @@ async def test_coordinator_dispatches_switch_group_and_relay_once_until_state_ch
 
 async def test_coordinator_tracks_unavailable_entities_in_snapshot(hass) -> None:
     """Missing sensors and actuators should be exposed in the runtime snapshot."""
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("switch.boiler", "off")
 
     coordinator = MultiZoneHeatingCoordinator(hass, _build_switch_config())
@@ -153,7 +149,6 @@ async def test_coordinator_tracks_unavailable_entities_in_snapshot(hass) -> None
     assert coordinator.data is not None
     assert "sensor.living_room_temperature" in coordinator.data.unavailable_entity_ids
     assert "switch.radiator" in coordinator.data.unavailable_entity_ids
-    assert "input_number.living_room_target" not in coordinator.data.unavailable_entity_ids
     assert coordinator.data.system_demand is False
     await coordinator.async_stop()
 
@@ -162,7 +157,6 @@ async def test_coordinator_rechecks_relay_after_off_delay(hass, monkeypatch) -> 
     """A deferred relay-off should complete via the scheduled reevaluation."""
     now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
     hass.states.async_set("sensor.living_room_temperature", "20.5")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("switch.radiator", "off")
     hass.states.async_set("switch.boiler", "on")
 
@@ -198,7 +192,6 @@ async def test_coordinator_rechecks_relay_after_off_delay(hass, monkeypatch) -> 
 async def test_coordinator_dispatches_input_boolean_global_relay(hass) -> None:
     """The main relay may be backed by an input_boolean helper."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("switch.radiator", "off")
     hass.states.async_set("input_boolean.boiler_enable", "off")
 
@@ -233,7 +226,6 @@ async def test_coordinator_raises_missing_flow_warning_after_timeout(hass, monke
     """Missing-flow warnings should trip on the scheduled timeout boundary."""
     now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("sensor.system_flow", "0.0")
     hass.states.async_set("switch.radiator", "off")
     hass.states.async_set("switch.boiler", "on")
@@ -274,7 +266,6 @@ async def test_coordinator_raises_missing_flow_warning_after_timeout(hass, monke
 async def test_coordinator_dispatches_climate_targets(hass) -> None:
     """Climate zones should set shared target temperatures once."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("climate.zone_target", "heat", {"temperature": 21.0})
     hass.states.async_set("climate.radiator_a", "heat", {"temperature": 18.0})
     hass.states.async_set("climate.radiator_b", "heat", {"temperature": 21.0})
     hass.states.async_set("switch.boiler", "off")
@@ -289,8 +280,7 @@ async def test_coordinator_dispatches_climate_targets(hass) -> None:
                 ZoneConfig(
                     name="Living Room",
                     control_type=ControlType.CLIMATE,
-                    target_source=TargetSourceType.CLIMATE,
-                    target_entity_id="climate.zone_target",
+                    target_temperature=21.0,
                     sensor_entity_ids=["sensor.living_room_temperature"],
                     climate_entity_ids=["climate.radiator_a", "climate.radiator_b"],
                     aggregation_mode=AggregationMode.AVERAGE,
@@ -310,7 +300,6 @@ async def test_coordinator_dispatches_climate_targets(hass) -> None:
 async def test_coordinator_restores_heat_mode_before_setting_target(hass) -> None:
     """Climate zones should resume heat mode before pushing the target again."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("climate.zone_target", "heat", {"temperature": 21.0})
     hass.states.async_set(
         "climate.radiator_a",
         "off",
@@ -328,8 +317,7 @@ async def test_coordinator_restores_heat_mode_before_setting_target(hass) -> Non
                 ZoneConfig(
                     name="Living Room",
                     control_type=ControlType.CLIMATE,
-                    target_source=TargetSourceType.CLIMATE,
-                    target_entity_id="climate.zone_target",
+                    target_temperature=21.0,
                     sensor_entity_ids=["sensor.living_room_temperature"],
                     climate_entity_ids=["climate.radiator_a"],
                     aggregation_mode=AggregationMode.AVERAGE,
@@ -349,7 +337,6 @@ async def test_coordinator_restores_heat_mode_before_setting_target(hass) -> Non
 async def test_coordinator_turns_climate_zone_off_when_demand_clears(hass) -> None:
     """Climate zones should turn supported actuators off when they stop demanding heat."""
     hass.states.async_set("sensor.living_room_temperature", "20.5")
-    hass.states.async_set("climate.zone_target", "heat", {"temperature": 20.0})
     hass.states.async_set(
         "climate.radiator_a",
         "heat",
@@ -367,8 +354,7 @@ async def test_coordinator_turns_climate_zone_off_when_demand_clears(hass) -> No
                 ZoneConfig(
                     name="Living Room",
                     control_type=ControlType.CLIMATE,
-                    target_source=TargetSourceType.CLIMATE,
-                    target_entity_id="climate.zone_target",
+                    target_temperature=20.0,
                     sensor_entity_ids=["sensor.living_room_temperature"],
                     climate_entity_ids=["climate.radiator_a"],
                     aggregation_mode=AggregationMode.AVERAGE,
@@ -388,7 +374,6 @@ async def test_coordinator_turns_climate_zone_off_when_demand_clears(hass) -> No
 async def test_coordinator_uses_climate_fallback_target_when_off_is_unsupported(hass) -> None:
     """Climate zones should write the fallback target when off cannot be selected."""
     hass.states.async_set("sensor.living_room_temperature", "20.5")
-    hass.states.async_set("climate.zone_target", "heat", {"temperature": 20.0})
     hass.states.async_set(
         "climate.radiator_a",
         "heat",
@@ -406,8 +391,7 @@ async def test_coordinator_uses_climate_fallback_target_when_off_is_unsupported(
                 ZoneConfig(
                     name="Living Room",
                     control_type=ControlType.CLIMATE,
-                    target_source=TargetSourceType.CLIMATE,
-                    target_entity_id="climate.zone_target",
+                    target_temperature=20.0,
                     sensor_entity_ids=["sensor.living_room_temperature"],
                     climate_entity_ids=["climate.radiator_a"],
                     climate_off_fallback_temperature=7.5,
@@ -428,7 +412,6 @@ async def test_coordinator_uses_climate_fallback_target_when_off_is_unsupported(
 async def test_coordinator_dispatches_number_group_values(hass) -> None:
     """Number groups should write the configured active value."""
     hass.states.async_set("sensor.floor_temperature", "19.0")
-    hass.states.async_set("input_number.floor_target", "20.0")
     hass.states.async_set("number.floor_valve", "0")
     hass.states.async_set("switch.boiler", "off")
     _register_recording_switch_services(hass)
@@ -442,8 +425,7 @@ async def test_coordinator_dispatches_number_group_values(hass) -> None:
                 ZoneConfig(
                     name="Floor",
                     control_type=ControlType.NUMBER,
-                    target_source=TargetSourceType.INPUT_NUMBER,
-                    target_entity_id="input_number.floor_target",
+                    target_temperature=20.0,
                     local_groups=[
                         LocalControlGroup(
                             name="Valve",
@@ -471,7 +453,6 @@ async def test_coordinator_dispatches_number_group_values(hass) -> None:
 async def test_coordinator_ignores_groups_with_no_available_actuators(hass) -> None:
     """The relay should stay off when a demanding group has no available actuators left."""
     hass.states.async_set("sensor.floor_temperature", "19.0")
-    hass.states.async_set("input_number.floor_target", "20.0")
     hass.states.async_set("switch.boiler", "off")
     calls = _register_recording_switch_services(hass)
 
@@ -483,8 +464,7 @@ async def test_coordinator_ignores_groups_with_no_available_actuators(hass) -> N
                 ZoneConfig(
                     name="Floor",
                     control_type=ControlType.SWITCH,
-                    target_source=TargetSourceType.INPUT_NUMBER,
-                    target_entity_id="input_number.floor_target",
+                    target_temperature=20.0,
                     local_groups=[
                         LocalControlGroup(
                             name="Valve",
@@ -526,8 +506,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
                     "name": "Living Room",
                     "enabled": True,
                     "control_type": ControlType.NUMBER,
-                    "target_source": TargetSourceType.INPUT_NUMBER,
-                    "target_entity_id": "input_number.living_room_target",
+                    "target_temperature": 20.0,
                     "sensor_entity_ids": [],
                     "climate_entity_ids": [],
                     "climate_off_fallback_temperature": None,
@@ -557,7 +536,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
     assert config.missing_flow_timeout_seconds == 90
     assert config.default_hysteresis == 0.4
     assert config.zones[0].control_type is ControlType.NUMBER
-    assert config.zones[0].target_source is TargetSourceType.INPUT_NUMBER
+    assert config.zones[0].target_temperature == 20.0
     assert config.zones[0].climate_off_fallback_temperature is None
     assert config.zones[0].local_groups[0].aggregation_mode is AggregationMode.MINIMUM
     assert config.zones[0].local_groups[0].number_semantic_type is NumberSemanticType.PERCENTAGE

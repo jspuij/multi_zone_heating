@@ -27,13 +27,6 @@ class ControlType(StrEnum):
     SWITCH = "switch"
 
 
-class TargetSourceType(StrEnum):
-    """Supported target temperature source types."""
-
-    CLIMATE = "climate"
-    INPUT_NUMBER = "input_number"
-
-
 class NumberSemanticType(StrEnum):
     """Supported meanings for number-based actuators."""
 
@@ -62,8 +55,7 @@ class ZoneConfig:
 
     name: str
     control_type: ControlType
-    target_source: TargetSourceType
-    target_entity_id: str
+    target_temperature: float
     sensor_entity_ids: list[str] = field(default_factory=list)
     climate_entity_ids: list[str] = field(default_factory=list)
     climate_off_fallback_temperature: float | None = None

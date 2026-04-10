@@ -5,7 +5,11 @@ from __future__ import annotations
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_NAME
 
-from custom_components.multi_zone_heating.const import DEFAULT_TITLE, DOMAIN
+from custom_components.multi_zone_heating.const import (
+    DEFAULT_TITLE,
+    DEFAULT_ZONE_TARGET_TEMPERATURE,
+    DOMAIN,
+)
 from custom_components.multi_zone_heating.config_flow import (
     ACTION_ADD_GROUP,
     ACTION_ADD_ZONE,
@@ -37,8 +41,7 @@ from custom_components.multi_zone_heating.config_flow import (
     CONF_PRIMARY_SENSOR_ENTITY_ID,
     CONF_RELAY_OFF_DELAY_SECONDS,
     CONF_SENSOR_ENTITY_IDS,
-    CONF_TARGET_ENTITY_ID,
-    CONF_TARGET_SOURCE,
+    CONF_TARGET_TEMPERATURE,
     CONF_ZONE,
     CONF_ZONES,
     CONF_GROUP,
@@ -47,7 +50,6 @@ from custom_components.multi_zone_heating.models import (
     AggregationMode,
     ControlType,
     NumberSemanticType,
-    TargetSourceType,
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -87,8 +89,7 @@ def _existing_config() -> dict[str, object]:
                 CONF_NAME: "Bedroom",
                 CONF_ENABLED: True,
                 CONF_CONTROL_TYPE: ControlType.SWITCH,
-                CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-                CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+                CONF_TARGET_TEMPERATURE: DEFAULT_ZONE_TARGET_TEMPERATURE,
                 CONF_FROST_PROTECTION_MIN_TEMP: None,
                 CONF_SENSOR_ENTITY_IDS: [],
                 CONF_CLIMATE_ENTITY_IDS: [],
@@ -172,8 +173,6 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
         },
     )
@@ -217,8 +216,7 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
                 CONF_NAME: "Living Room",
                 CONF_ENABLED: True,
                 CONF_CONTROL_TYPE: ControlType.CLIMATE,
-                CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-                CONF_TARGET_ENTITY_ID: "climate.living_room_target",
+                CONF_TARGET_TEMPERATURE: 20.0,
                 CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
                 CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
                 CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
@@ -256,8 +254,6 @@ async def test_user_flow_creates_entry_for_switch_zone_with_local_group(hass) ->
             CONF_NAME: "Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
         },
     )
 
@@ -297,8 +293,7 @@ async def test_user_flow_creates_entry_for_switch_zone_with_local_group(hass) ->
             CONF_NAME: "Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
+            CONF_TARGET_TEMPERATURE: DEFAULT_ZONE_TARGET_TEMPERATURE,
             CONF_FROST_PROTECTION_MIN_TEMP: None,
             CONF_SENSOR_ENTITY_IDS: [],
             CONF_CLIMATE_ENTITY_IDS: [],
@@ -331,8 +326,6 @@ async def test_user_flow_supports_multiple_zones_and_multiple_local_groups(hass)
             CONF_NAME: "Upstairs",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.upstairs_target",
         },
     )
 
@@ -389,8 +382,6 @@ async def test_user_flow_supports_multiple_zones_and_multiple_local_groups(hass)
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
         },
     )
 
@@ -444,8 +435,6 @@ async def test_number_group_requires_number_values(hass) -> None:
             CONF_NAME: "Office",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.NUMBER,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "number.office_target",
         },
     )
 
@@ -491,8 +480,8 @@ async def test_global_config_requires_flow_threshold_when_flow_sensor_is_set(has
     assert result["errors"] == {"base": "flow_threshold_required"}
 
 
-async def test_zone_rejects_target_entity_domain_mismatch(hass) -> None:
-    """Zone target entity IDs should match the selected target source type."""
+async def test_zone_uses_frost_minimum_for_initial_target_when_higher(hass) -> None:
+    """Initial owned targets should respect the higher frost floor."""
     result = await _start_basic_flow(hass)
 
     result = await hass.config_entries.flow.async_configure(
@@ -501,14 +490,28 @@ async def test_zone_rejects_target_entity_domain_mismatch(hass) -> None:
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "input_number.living_room_target",
+            CONF_FROST_PROTECTION_MIN_TEMP: 21.0,
         },
     )
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "zone"
-    assert result["errors"] == {"base": "target_entity_domain_mismatch"}
+    assert result["step_id"] == "climate_zone"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
+            CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
+            CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"add_another_zone": False},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == 21.0
 
 
 async def test_zone_requires_non_empty_name(hass) -> None:
@@ -521,8 +524,6 @@ async def test_zone_requires_non_empty_name(hass) -> None:
             CONF_NAME: "   ",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
         },
     )
 
@@ -541,8 +542,6 @@ async def test_local_group_requires_non_empty_name(hass) -> None:
             CONF_NAME: "Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
         },
     )
 
@@ -586,8 +585,6 @@ async def test_climate_zone_requires_primary_sensor_when_primary_mode_selected(h
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
         },
     )
 
@@ -658,8 +655,6 @@ async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
             CONF_NAME: "Main Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.main_bedroom_target",
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
         },
     )
@@ -706,7 +701,7 @@ async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
     assert result["data"][CONF_FLOW_DETECTION_THRESHOLD] == 1.5
     assert result["data"][CONF_DEFAULT_HYSTERESIS] == 0.45
     assert result["data"][CONF_ZONES][0][CONF_NAME] == "Main Bedroom"
-    assert result["data"][CONF_ZONES][0][CONF_TARGET_ENTITY_ID] == "input_number.main_bedroom_target"
+    assert result["data"][CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == DEFAULT_ZONE_TARGET_TEMPERATURE
     assert result["data"][CONF_ZONES][0][CONF_FROST_PROTECTION_MIN_TEMP] == 8.0
     assert result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_NAME] == "Main Radiator"
     assert (
@@ -789,8 +784,6 @@ async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> N
             CONF_NAME: "Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
         },
     )
     assert result["step_id"] == "manage_local_groups"
@@ -842,8 +835,6 @@ async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> N
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
         },
     )
@@ -884,8 +875,7 @@ async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> N
             CONF_NAME: "Living Room",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
-            CONF_TARGET_SOURCE: TargetSourceType.CLIMATE,
-            CONF_TARGET_ENTITY_ID: "climate.living_room_target",
+            CONF_TARGET_TEMPERATURE: 20.0,
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
             CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
             CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
@@ -922,8 +912,6 @@ async def test_options_flow_requires_local_group_before_finishing_non_climate_zo
             CONF_NAME: "Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
-            CONF_TARGET_SOURCE: TargetSourceType.INPUT_NUMBER,
-            CONF_TARGET_ENTITY_ID: "input_number.bedroom_target",
         },
     )
     assert result["step_id"] == "manage_local_groups"

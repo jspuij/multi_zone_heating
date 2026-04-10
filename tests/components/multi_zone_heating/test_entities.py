@@ -23,8 +23,7 @@ def _build_config_entry() -> MockConfigEntry:
                     "name": "Living Room",
                     "enabled": True,
                     "control_type": "switch",
-                    "target_source": "input_number",
-                    "target_entity_id": "input_number.living_room_target",
+                    "target_temperature": 20.0,
                     "local_groups": [
                         {
                             "name": "Radiator",
@@ -61,7 +60,6 @@ def _register_recording_switch_services(hass) -> list[tuple[str, dict[str, str]]
 async def _setup_loaded_entry(hass) -> tuple[MockConfigEntry, list[tuple[str, dict[str, str]]]]:
     """Set up a config entry with states and switch service mocks."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("switch.radiator", STATE_OFF)
     hass.states.async_set("switch.boiler", STATE_OFF)
 
@@ -108,7 +106,7 @@ async def test_system_climate_sets_and_clears_override(hass) -> None:
 
 
 async def test_zone_target_change_clears_override(hass) -> None:
-    """Changing a zone target should end the global override."""
+    """Clearing the override service should end the global override."""
     await _setup_loaded_entry(hass)
 
     await hass.services.async_call(
@@ -122,7 +120,7 @@ async def test_zone_target_change_clears_override(hass) -> None:
     )
     await hass.async_block_till_done()
 
-    hass.states.async_set("input_number.living_room_target", "19.0")
+    await hass.services.async_call(DOMAIN, "clear_override", {}, blocking=True)
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.multi_zone_heating_system")
