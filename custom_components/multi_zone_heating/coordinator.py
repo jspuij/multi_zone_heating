@@ -193,6 +193,23 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._persist_zone_enabled(zone_name, enabled)
         await self.async_refresh()
 
+    async def async_set_zone_target_temperature(
+        self,
+        zone_name: str,
+        target_temperature: float,
+    ) -> None:
+        """Persist and apply the owned target temperature for one zone."""
+        zone = self.get_zone_config(zone_name)
+        if zone is None:
+            return
+
+        if math.isclose(zone.target_temperature, target_temperature, abs_tol=0.01):
+            return
+
+        zone.target_temperature = target_temperature
+        self._persist_zone_target_temperature(zone_name, target_temperature)
+        await self.async_refresh()
+
     async def async_set_global_force_off(self, enabled: bool) -> None:
         """Enable or disable global force-off."""
         if self._global_force_off == enabled:
@@ -223,6 +240,16 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         for zone in self.config.zones:
             if zone.name == zone_name:
                 return zone
+        return None
+
+    def get_zone_evaluation(self, zone_name: str) -> ZoneEvaluation | None:
+        """Return the latest evaluation for one configured zone."""
+        if self.data is None:
+            return None
+
+        for evaluation in self.data.zone_evaluations:
+            if evaluation.name == zone_name:
+                return evaluation
         return None
 
     async def _async_update_data(self) -> RuntimeSnapshot:
@@ -390,6 +417,30 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             updated_zone_data = dict(zone_data)
             if updated_zone_data.get("name") == zone_name:
                 updated_zone_data["enabled"] = enabled
+            zones.append(updated_zone_data)
+
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={
+                **self.config_entry.data,
+                "zones": zones,
+            },
+        )
+
+    def _persist_zone_target_temperature(
+        self,
+        zone_name: str,
+        target_temperature: float,
+    ) -> None:
+        """Persist the owned zone target temperature into the config entry data."""
+        if self.config_entry is None:
+            return
+
+        zones = []
+        for zone_data in self.config_entry.data.get("zones", []):
+            updated_zone_data = dict(zone_data)
+            if updated_zone_data.get("name") == zone_name:
+                updated_zone_data["target_temperature"] = target_temperature
             zones.append(updated_zone_data)
 
         self.hass.config_entries.async_update_entry(
