@@ -44,14 +44,15 @@ Acceptance criteria:
 
 - A zone has a name
 - A zone can be enabled or disabled
-- A zone has one target temperature source
+- A zone has one integration-owned virtual climate entity
 - A zone has one control type: `climate`, `switch`, or `number`
 - Zones can be added and edited through the UI
+- Core zone config does not require `target_source` or `target_entity_id`
 
 #### US-003 Configure a climate-controlled zone
 
 As a home owner,
-I want to configure a zone that is controlled through one or more climate entities,
+I want to configure a zone that is controlled through one or more slave climate entities,
 so that all climate devices in that zone act together.
 
 Acceptance criteria:
@@ -59,8 +60,8 @@ Acceptance criteria:
 - A climate zone can have one or more temperature sensors
 - A climate zone supports temperature aggregation modes `average`, `minimum`, and `primary`
 - A climate zone can define a primary sensor when using `primary`
-- A climate zone can contain one or more climate entities
-- All climate entities in the zone share the same zone target temperature
+- A climate zone can contain one or more slave climate entities
+- The zone virtual climate is the only source of truth for the zone target temperature
 
 #### US-004 Configure local control groups for switch and number zones
 
@@ -75,19 +76,20 @@ Acceptance criteria:
 - Each local control group must contain one or more actuators
 - Each local control group has one control type: `switch` or `number`
 - Each local control group can be named
-- All local control groups in the same zone share the same target temperature source
+- All local control groups in the same zone share the zone climate target temperature
 
-#### US-005 Use Home Assistant entities as target temperature sources
+#### US-005 Persist zone target temperatures in integration-owned state
 
 As a home owner,
-I want zone targets to come from Home Assistant entities I already use,
-so that the heating integration fits into my existing setup.
+I want each zone target temperature to be stored by the integration itself,
+so that target state is stable and survives restart without depending on external entities.
 
 Acceptance criteria:
 
-- A zone target can come from an `input_number`
-- A zone target can come from a `climate` entity target temperature
-- Target temperature changes are reflected in control decisions without restart
+- Each zone target temperature is stored in integration-owned state or config
+- A restart restores the last persisted zone target temperature
+- Zone control decisions use the restored value without waiting on an external target entity
+- External Home Assistant automations can change a zone by calling the zone climate entity
 
 ### Temperature and Demand Logic
 
@@ -113,11 +115,25 @@ so that each local spot can be heated according to its measured temperature.
 Acceptance criteria:
 
 - Each local control group computes its own effective temperature
-- Each local control group uses the shared zone target temperature
+- Each local control group uses the shared zone target temperature from the zone climate
 - Each local control group applies the global hysteresis
 - A zone is considered to have demand if one or more local groups have demand
 
-#### US-008 Handle unavailable sensors safely
+#### US-008 Expose zone climate current temperature from aggregation logic
+
+As a home owner,
+I want the zone virtual climate to show the actual zone temperature,
+so that the UI reflects the same temperature the integration uses for control.
+
+Acceptance criteria:
+
+- The zone climate exposes `current_temperature`
+- For `average`, `current_temperature` is the mean of available configured zone sensors
+- For `minimum`, `current_temperature` is the minimum of available configured zone sensors
+- For `primary`, `current_temperature` is the configured primary sensor value
+- If no valid sensor remains, `current_temperature` is unavailable or `None`
+
+#### US-009 Handle unavailable sensors safely
 
 As a home owner,
 I want the system to behave safely when sensors become unavailable,
@@ -132,19 +148,20 @@ Acceptance criteria:
 
 ### Actuator Control
 
-#### US-009 Control climate entities together within a zone
+#### US-010 Control slave climate entities together within a zone
 
 As a home owner,
-I want all climate entities in a climate-controlled zone to move together,
+I want all slave climate entities in a climate-controlled zone to move together,
 so that the zone behaves as one heating area.
 
 Acceptance criteria:
 
-- When a climate zone demands heat, all climate entities in the zone are driven to the zone target
-- When a climate zone no longer demands heat, climate entities are set to HVAC mode `off` where supported
+- When a climate zone demands heat, all slave climate entities in the zone are driven to the zone target
+- When a climate zone no longer demands heat, slave climate entities are set to HVAC mode `off` where supported
 - If a climate entity does not support `off`, a configured low target temperature is used instead
+- Slave climate entities do not provide the source of truth for the zone target
 
-#### US-010 Control switch local groups independently
+#### US-011 Control switch local groups independently
 
 As a home owner,
 I want each switch-based local control group to turn its own valves on or off,
@@ -156,7 +173,7 @@ Acceptance criteria:
 - When a switch group no longer demands heat, all switch actuators in that group are turned off
 - Different groups in the same zone can be on or off independently
 
-#### US-011 Control number local groups independently
+#### US-012 Control number local groups independently
 
 As a home owner,
 I want each number-based local control group to write active and inactive values,
@@ -170,7 +187,7 @@ Acceptance criteria:
 - When a number group no longer demands heat, the inactive value is written
 - Different groups in the same zone can be active or inactive independently
 
-#### US-012 Continue operating while at least one actuator remains available
+#### US-013 Continue operating while at least one actuator remains available
 
 As a home owner,
 I want heating to continue if some actuators fail but others remain available,
@@ -184,7 +201,7 @@ Acceptance criteria:
 
 ### Main Relay and Flow Control
 
-#### US-013 Turn on the main relay when any zone needs heat
+#### US-014 Turn on the main relay when any zone needs heat
 
 As a home owner,
 I want the main relay to turn on whenever the system requires heat,
@@ -196,7 +213,7 @@ Acceptance criteria:
 - The relay on command respects the configured minimum off time
 - Relay state is exposed in diagnostics
 
-#### US-014 Turn off the main relay only after heating demand ends and flow drops
+#### US-015 Turn off the main relay only after heating demand ends and flow drops
 
 As a home owner,
 I want the relay to stay on briefly and wait for flow to drop,
@@ -209,7 +226,7 @@ Acceptance criteria:
 - If a flow meter is configured, relay off remains pending until flow is no longer detected
 - If no flow meter is configured, relay off uses timing rules only
 
-#### US-015 Warn when there is heating demand but no detected flow
+#### US-016 Warn when there is heating demand but no detected flow
 
 As a home owner,
 I want the integration to raise a warning if the system calls for heat but no flow is detected,
@@ -224,7 +241,7 @@ Acceptance criteria:
 
 ### Overrides and User-Facing Entities
 
-#### US-016 Disable a zone manually
+#### US-017 Disable a zone manually
 
 As a home owner,
 I want to turn a zone on or off manually,
@@ -234,9 +251,9 @@ Acceptance criteria:
 
 - Each zone exposes an enable or disable control
 - A disabled zone does not generate demand
-- Disabling a zone updates group or climate actuation accordingly
+- Disabling a zone updates downstream actuation accordingly
 
-#### US-017 Force all heating off globally
+#### US-018 Force all heating off globally
 
 As a home owner,
 I want to force the whole heating system off,
@@ -248,9 +265,9 @@ Acceptance criteria:
 - While global force-off is active, the main relay is kept off
 - While global force-off is active, switch actuators are turned off
 - While global force-off is active, number actuators are set to inactive values
-- While global force-off is active, climate entities are set to `off` or low-target fallback
+- While global force-off is active, climate actuators are set to `off` or low-target fallback
 
-#### US-018 Expose zone and system demand entities
+#### US-019 Expose zone and system demand entities
 
 As a Home Assistant automation author,
 I want demand and status entities exposed by the integration,
@@ -263,7 +280,20 @@ Acceptance criteria:
 - The system exposes relay desired and actual state information
 - Diagnostics expose sensor and actuator availability information
 
-#### US-019 Expose a top-level climate entity
+#### US-020 Expose a zone climate entity per zone
+
+As a home owner,
+I want each zone to have its own climate entity,
+so that I can control zone targets through a native Home Assistant climate surface.
+
+Acceptance criteria:
+
+- The integration exposes one climate entity per zone
+- Setting zone target temperature updates the integration-owned persisted target
+- The zone climate shows `current_temperature` from the configured zone aggregation logic
+- The zone climate does not proxy another entity as its target source
+
+#### US-021 Expose a top-level climate entity
 
 As a home owner,
 I want a top-level climate entity for the heating system,
@@ -274,17 +304,12 @@ Acceptance criteria:
 - The integration exposes one system-level climate entity
 - The entity reflects overall heating availability and state
 - The entity supports turning the heating system off
-- The entity exposes a global override target temperature
 - Setting HVAC mode to `off` activates global force-off
 - Setting HVAC mode to `heat` clears global force-off
-- Setting target temperature creates or updates a global override
-- The override remains active until a zone target changes or a `clear_override` action is used
-- The original per-zone targets are preserved and restored when the override ends
-- If HVAC mode is `off`, override state and override target are preserved
-- If target temperature is changed while HVAC mode is `off`, the override is stored without resuming heating
-- The climate entity exposes attributes for `override_active`, `override_target_temperature`, `zones_calling_for_heat`, and `global_force_off`
+- If the entity exposes target temperature, writing it fans out through integration-owned zone targets rather than external target entities
+- The climate entity exposes attributes for `zones_calling_for_heat` and `global_force_off`
 
-#### US-020 Support a global frost protection minimum
+#### US-022 Support a global frost protection minimum
 
 As a home owner,
 I want a minimum heating safeguard,
@@ -295,7 +320,7 @@ Acceptance criteria:
 - A global minimum temperature can be configured
 - The integration prevents effective target temperature from falling below that minimum
 
-#### US-021 Support per-zone frost protection minimums
+#### US-023 Support per-zone frost protection minimums
 
 As a home owner,
 I want some zones to have their own minimum temperatures,
@@ -306,9 +331,21 @@ Acceptance criteria:
 - A zone can override the global minimum temperature
 - Zone-specific minimums are used in demand calculations for that zone
 
+#### US-024 Migrate existing configurations away from target entities
+
+As an existing user,
+I want the integration to migrate old zone target configuration safely,
+so that the redesign does not break my installation unexpectedly.
+
+Acceptance criteria:
+
+- Existing configs using `target_source` or `target_entity_id` are migrated or rejected clearly
+- Migration behavior is documented
+- Tests cover migrated config entries
+
 ## Should-Have Stories
 
-#### US-022 Expose detailed diagnostics for each local group
+#### US-025 Expose detailed diagnostics for each local group
 
 As a home owner,
 I want to inspect local group temperatures and demand,
@@ -321,7 +358,7 @@ Acceptance criteria:
 - Local group sensor availability is exposed
 - Local group actuator availability is exposed
 
-#### US-023 Keep configuration editable through an options flow
+#### US-026 Keep configuration editable through an options flow
 
 As a home owner,
 I want to adjust system settings after setup,
@@ -337,31 +374,25 @@ Acceptance criteria:
 
 ## Later Stories
 
-#### US-024 Detect open windows from zone disable patterns
+#### US-027 Detect open windows from zone disable patterns
 
 As a home owner,
 I want the integration to support smarter zone disable behavior,
 so that open-window logic can be added later.
 
-#### US-025 Provide richer fault entities and repair flows
+#### US-028 Provide richer fault entities and repair flows
 
 As a home owner,
 I want clearer fault reporting and recovery guidance,
 so that I can diagnose failed sensors, failed actuators, and flow issues more easily.
 
-#### US-026 Auto-suggest entities during setup
+#### US-029 Auto-suggest entities during setup
 
 As an installer,
 I want the integration to suggest likely matching sensors and actuators,
 so that large systems are faster to configure.
 
-#### US-027 Support numeric flow sensors with thresholds
-
-As a home owner,
-I want to use a numeric flow meter with a configurable threshold,
-so that flow detection works with more hardware types.
-
-#### US-028 Add richer top-level climate behavior
+#### US-030 Add richer top-level climate behavior
 
 As a home owner,
 I want the top-level climate entity to support a well-defined target and mode model,
@@ -375,6 +406,8 @@ The smallest coherent version 1 should include:
 - Main relay control
 - Optional numeric flow meter support with thresholding
 - Zone definitions
+- One virtual climate entity per zone
+- Integration-owned persistence of zone targets
 - Climate-controlled zones
 - Switch and number local control groups
 - Demand calculation with global hysteresis
@@ -382,11 +415,5 @@ The smallest coherent version 1 should include:
 - Per-zone enable or disable
 - Global force-off
 - Zone and system demand entities
-- Top-level climate entity with global override target and `heat`/`off`
+- Top-level climate entity
 - Warning state for demand without flow
-
-## Open Questions Before Implementation
-
-These stories are ready enough to guide implementation, but a few product details still need a final decision:
-
-1. How should local control groups be edited in the options flow without becoming cumbersome?
