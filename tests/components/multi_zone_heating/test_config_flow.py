@@ -73,7 +73,6 @@ async def _start_basic_flow(hass, *, name: str = DEFAULT_TITLE):
         },
     )
 
-
 def _existing_config() -> dict[str, object]:
     """Build a representative config-entry payload for options-flow tests."""
     return {
@@ -111,6 +110,32 @@ def _existing_config() -> dict[str, object]:
             }
         ],
     }
+
+
+async def test_user_flow_accepts_input_boolean_for_main_relay(hass) -> None:
+    """The global relay selector should accept input_boolean helpers."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Helper Relay",
+            CONF_MAIN_RELAY_ENTITY_ID: "input_boolean.boiler_enable",
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
+            CONF_DEFAULT_HYSTERESIS: 0.3,
+            CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
+            CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
+            CONF_RELAY_OFF_DELAY_SECONDS: 0,
+        },
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "zone"
 
 
 async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
@@ -692,6 +717,50 @@ async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
         result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_AGGREGATION_MODE]
         == AggregationMode.MINIMUM
     )
+
+
+async def test_options_flow_updates_globals_with_input_boolean_relay(hass) -> None:
+    """Options flow should accept input_boolean helpers for the global relay."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Original Heating",
+        data=_existing_config(),
+        version=1,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_EDIT_GLOBALS},
+    )
+    assert result["step_id"] == "edit_globals"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Edited Heating",
+            CONF_MAIN_RELAY_ENTITY_ID: "input_boolean.updated_boiler_enable",
+            CONF_MISSING_FLOW_TIMEOUT_SECONDS: 60,
+            CONF_DEFAULT_HYSTERESIS: 0.3,
+            CONF_MIN_RELAY_ON_TIME_SECONDS: 0,
+            CONF_MIN_RELAY_OFF_TIME_SECONDS: 0,
+            CONF_RELAY_OFF_DELAY_SECONDS: 0,
+            CONF_FROST_PROTECTION_MIN_TEMP: 7.0,
+        },
+    )
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTION: ACTION_DONE},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MAIN_RELAY_ENTITY_ID] == "input_boolean.updated_boiler_enable"
 
 
 async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> None:

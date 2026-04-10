@@ -8,7 +8,7 @@ Version `0.1.0` is the first working implementation. It supports UI-based setup,
 
 - One Home Assistant config entry that manages the full heating system
 - Multiple zones with independent demand evaluation
-- A shared main relay that follows aggregate demand
+- A shared main relay that follows aggregate demand and may be backed by a `switch` or `input_boolean`
 - Zone control via `climate`, `switch`, or `number` actuators
 - Zone targets sourced from either a `climate` entity or a `number`/`input_number`
 - Temperature aggregation using `average`, `minimum`, or `primary` sensor selection

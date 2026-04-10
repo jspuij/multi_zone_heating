@@ -237,7 +237,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         flow_value = snapshot.flow_value
 
         previous_relay_is_on = self._relay_runtime_state.is_on
-        current_relay_is_on = self._read_switch_state(self.config.main_relay_entity_id)
+        current_relay_is_on = self._read_toggle_state(self.config.main_relay_entity_id)
         pending_relay_command = self._last_commanded_switch_states.get(
             self.config.main_relay_entity_id or ""
         )
@@ -561,7 +561,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     async def _async_dispatch_switch_group(self, group: LocalControlGroup, demand: bool) -> None:
         """Turn switch actuators on or off for one local group."""
         for entity_id in group.actuator_entity_ids:
-            await self._async_dispatch_switch(entity_id, demand)
+            await self._async_dispatch_toggle_entity(entity_id, demand)
 
     async def _async_dispatch_number_group(self, group: LocalControlGroup, demand: bool) -> None:
         """Write active or inactive values for number-based actuators."""
@@ -603,14 +603,14 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         if relay_decision.should_turn_on:
-            await self._async_dispatch_switch(self.config.main_relay_entity_id, True)
+            await self._async_dispatch_toggle_entity(self.config.main_relay_entity_id, True)
             self._relay_runtime_state.is_on = True
             self._relay_runtime_state.last_on_at = now
             self._relay_runtime_state.off_requested_at = None
             return
 
         if relay_decision.should_turn_off:
-            await self._async_dispatch_switch(self.config.main_relay_entity_id, False)
+            await self._async_dispatch_toggle_entity(self.config.main_relay_entity_id, False)
             self._relay_runtime_state.is_on = False
             self._relay_runtime_state.last_off_at = now
             self._relay_runtime_state.off_requested_at = None
@@ -618,12 +618,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         self._relay_runtime_state.off_requested_at = relay_decision.off_requested_at
 
-    async def _async_dispatch_switch(self, entity_id: str, desired_on: bool) -> None:
-        """Turn a switch entity on or off only when required."""
+    async def _async_dispatch_toggle_entity(self, entity_id: str, desired_on: bool) -> None:
+        """Turn an on/off entity on or off only when required."""
         if not self._entity_is_available(entity_id):
             return
 
-        current_state = self._read_switch_state(entity_id)
+        current_state = self._read_toggle_state(entity_id)
         if current_state is desired_on:
             self._last_commanded_switch_states.pop(entity_id, None)
             return
@@ -729,7 +729,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         return supported_modes
 
-    def _read_switch_state(self, entity_id: str | None) -> bool | None:
+    def _read_toggle_state(self, entity_id: str | None) -> bool | None:
         """Read an on/off state from Home Assistant."""
         if entity_id is None:
             return None
