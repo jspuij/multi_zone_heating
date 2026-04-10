@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, TypeAlias
 
 from homeassistant.config_entries import ConfigEntry
@@ -24,7 +25,11 @@ async def async_setup_entry(
 ) -> bool:
     """Set up multi_zone_heating from a config entry."""
     domain_data: dict[str, RuntimeData] = hass.data.setdefault(DOMAIN, {})
-    config = integration_config_from_dict(entry.data)
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    merged_config = deepcopy(dict(entry.data))
+    merged_config.update(deepcopy(dict(entry.options)))
+    config = integration_config_from_dict(merged_config)
     coordinator = MultiZoneHeatingCoordinator(hass, config, config_entry=entry)
     entry.runtime_data = RuntimeData(
         config_entry_id=entry.entry_id,
@@ -72,3 +77,11 @@ async def _async_clear_overrides(hass: HomeAssistant) -> None:
     for runtime_data in hass.data.get(DOMAIN, {}).values():
         if runtime_data.coordinator is not None:
             await runtime_data.coordinator.async_clear_global_override()
+
+
+async def _async_update_listener(
+    hass: HomeAssistant,
+    entry: MultiZoneHeatingConfigEntry,
+) -> None:
+    """Reload the entry when options change so runtime state stays in sync."""
+    await hass.config_entries.async_reload(entry.entry_id)

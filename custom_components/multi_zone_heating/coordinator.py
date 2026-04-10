@@ -129,12 +129,20 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="multi_zone_heating",
-            config_entry=config_entry,
-        )
+        try:
+            super().__init__(
+                hass,
+                _LOGGER,
+                name="multi_zone_heating",
+                config_entry=config_entry,
+            )
+        except TypeError:
+            super().__init__(
+                hass,
+                _LOGGER,
+                name="multi_zone_heating",
+            )
+            self.config_entry = config_entry
         self.config = config
         self._unsub_state_changes: CALLBACK_TYPE | None = None
         self._unsub_recheck: CALLBACK_TYPE | None = None
