@@ -34,7 +34,6 @@ from .control_logic import (
 from .models import (
     AggregationMode,
     ControlType,
-    GlobalOverride,
     IntegrationConfig,
     LocalControlGroup,
     NumberSemanticType,
@@ -67,10 +66,11 @@ def integration_config_from_dict(data: Mapping[str, Any]) -> IntegrationConfig:
 
 def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
     """Build a typed zone config from config-entry data."""
+    target_temperature = _as_float(data.get("target_temperature"))
     return ZoneConfig(
         name=str(data["name"]),
         control_type=ControlType(data["control_type"]),
-        target_temperature=_as_float(data.get("target_temperature")) or 20.0,
+        target_temperature=target_temperature if target_temperature is not None else 20.0,
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
         climate_off_fallback_temperature=_as_float(
@@ -155,7 +155,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._last_commanded_climate_hvac_modes: dict[str, HVACMode] = {}
         self._last_observed_climate_hvac_modes: dict[str, HVACMode] = {}
         self._relay_runtime_state = RelayRuntimeState(is_on=False)
-        self._global_override: GlobalOverride | None = None
         self._global_force_off = False
 
     async def async_start(self) -> None:
@@ -207,11 +206,35 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if zone is None:
             return
 
+        target_temperature = self._clamp_zone_target_temperature(zone, target_temperature)
         if math.isclose(zone.target_temperature, target_temperature, abs_tol=0.01):
             return
 
         zone.target_temperature = target_temperature
         self._persist_zone_target_temperature(zone_name, target_temperature)
+        await self.async_refresh()
+
+    async def async_set_all_zone_target_temperatures(self, target_temperature: float) -> None:
+        """Fan one master target change out to every configured zone."""
+        changed_zone_temperatures: dict[str, float] = {}
+        for zone in self.config.zones:
+            clamped_target_temperature = self._clamp_zone_target_temperature(
+                zone,
+                target_temperature,
+            )
+            if math.isclose(
+                zone.target_temperature,
+                clamped_target_temperature,
+                abs_tol=0.01,
+            ):
+                continue
+            zone.target_temperature = clamped_target_temperature
+            changed_zone_temperatures[zone.name] = clamped_target_temperature
+
+        if not changed_zone_temperatures:
+            return
+
+        self._persist_zone_target_temperatures(changed_zone_temperatures)
         await self.async_refresh()
 
     async def async_set_global_force_off(self, enabled: bool) -> None:
@@ -220,23 +243,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         self._global_force_off = enabled
-        await self.async_refresh()
-
-    async def async_set_global_override(self, target_temperature: float) -> None:
-        """Set the system-wide override temperature."""
-        if self._global_override is None:
-            self._global_override = GlobalOverride(target_temperature=target_temperature)
-        else:
-            self._global_override.target_temperature = target_temperature
-            self._global_override.active = True
-        await self.async_refresh()
-
-    async def async_clear_global_override(self) -> None:
-        """Remove the system-wide override temperature."""
-        if self._global_override is None:
-            return
-
-        self._global_override.active = False
         await self.async_refresh()
 
     def get_zone_config(self, zone_name: str) -> ZoneConfig | None:
@@ -260,7 +266,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         """Build a snapshot, evaluate demand, and dispatch required commands."""
         now = self._utcnow()
         snapshot = self._build_runtime_snapshot()
-        snapshot.global_override = self._global_override
         snapshot.global_force_off = self._global_force_off
         flow_value = snapshot.flow_value
 
@@ -298,7 +303,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 previous_demand=self._last_zone_demands.get(zone.name, False),
                 previous_group_demands=self._last_group_demands.get(zone.name),
                 hysteresis=self.config.default_hysteresis,
-                global_override=self._global_override,
                 global_frost_protection_min_temp=self.config.frost_protection_min_temp,
             )
             zone_evaluations.append(evaluation)
@@ -418,20 +422,15 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if self.config_entry is None:
             return
 
+        current_zones = self._config_entry_zone_payload()
         zones = []
-        for zone_data in self.config_entry.data.get("zones", []):
+        for zone_data in current_zones:
             updated_zone_data = dict(zone_data)
             if updated_zone_data.get("name") == zone_name:
                 updated_zone_data["enabled"] = enabled
             zones.append(updated_zone_data)
 
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            data={
-                **self.config_entry.data,
-                "zones": zones,
-            },
-        )
+        self._persist_config_entry_zones(zones)
 
     def _persist_zone_target_temperature(
         self,
@@ -442,12 +441,49 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if self.config_entry is None:
             return
 
+        current_zones = self._config_entry_zone_payload()
         zones = []
-        for zone_data in self.config_entry.data.get("zones", []):
+        for zone_data in current_zones:
             updated_zone_data = dict(zone_data)
             if updated_zone_data.get("name") == zone_name:
                 updated_zone_data["target_temperature"] = target_temperature
             zones.append(updated_zone_data)
+
+        self._persist_config_entry_zones(zones)
+
+    def _persist_zone_target_temperatures(
+        self,
+        target_temperatures: Mapping[str, float],
+    ) -> None:
+        """Persist a set of zone target updates into the config entry."""
+        if self.config_entry is None:
+            return
+
+        current_zones = self._config_entry_zone_payload()
+        zones = []
+        for zone_data in current_zones:
+            updated_zone_data = dict(zone_data)
+            zone_name = updated_zone_data.get("name")
+            if zone_name in target_temperatures:
+                updated_zone_data["target_temperature"] = target_temperatures[zone_name]
+            zones.append(updated_zone_data)
+
+        self._persist_config_entry_zones(zones)
+
+    def _persist_config_entry_zones(self, zones: list[dict[str, Any]]) -> None:
+        """Persist zones to whichever config-entry payload currently owns them."""
+        if self.config_entry is None:
+            return
+
+        if "zones" in self.config_entry.options:
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                options={
+                    **self.config_entry.options,
+                    "zones": zones,
+                },
+            )
+            return
 
         self.hass.config_entries.async_update_entry(
             self.config_entry,
@@ -456,6 +492,32 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 "zones": zones,
             },
         )
+
+    def _config_entry_zone_payload(self) -> list[dict[str, Any]]:
+        """Return the current zone payload, preferring options when they own it."""
+        if self.config_entry is None:
+            return []
+
+        zone_payload = self.config_entry.options.get("zones")
+        if isinstance(zone_payload, list):
+            return zone_payload
+        zone_payload = self.config_entry.data.get("zones")
+        if isinstance(zone_payload, list):
+            return zone_payload
+        return []
+
+    def _clamp_zone_target_temperature(
+        self,
+        zone: ZoneConfig,
+        target_temperature: float,
+    ) -> float:
+        """Clamp a zone target to the effective frost floor."""
+        minimums = [5.0]
+        if self.config.frost_protection_min_temp is not None:
+            minimums.append(self.config.frost_protection_min_temp)
+        if zone.frost_protection_min_temp is not None:
+            minimums.append(zone.frost_protection_min_temp)
+        return max(target_temperature, max(minimums))
 
     async def _async_dispatch_zone_commands(
         self,

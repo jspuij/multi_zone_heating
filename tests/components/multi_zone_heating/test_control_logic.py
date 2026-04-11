@@ -18,7 +18,6 @@ from custom_components.multi_zone_heating.control_logic import (
 from custom_components.multi_zone_heating.models import (
     AggregationMode,
     ControlType,
-    GlobalOverride,
     LocalControlGroup,
     RelayRuntimeState,
     ZoneConfig,
@@ -77,18 +76,16 @@ def test_hysteresis_retains_previous_state_inside_band() -> None:
     assert evaluate_hysteresis_demand(20.0, 20.0, previous_demand=True, hysteresis=0.3) is False
 
 
-def test_effective_target_uses_override_and_frost_clamp() -> None:
-    """Global overrides should win and frost protection should clamp upward."""
+def test_effective_target_uses_frost_clamp() -> None:
+    """Frost protection should clamp the owned target upward."""
     assert resolve_effective_target_temperature(
         19.0,
-        global_override=GlobalOverride(target_temperature=17.0),
         zone_frost_protection_min_temp=18.0,
         global_frost_protection_min_temp=7.0,
-    ) == 18.0
+    ) == 19.0
 
     assert resolve_effective_target_temperature(
         19.0,
-        global_override=None,
         zone_frost_protection_min_temp=None,
         global_frost_protection_min_temp=20.0,
     ) == 20.0
@@ -136,7 +133,7 @@ def test_switch_zone_demand_is_aggregated_from_local_groups() -> None:
 
 
 def test_local_control_group_evaluation_is_independently_testable() -> None:
-    """A local group should apply override, frost, and hysteresis on its own."""
+    """A local group should apply frost and hysteresis on its own."""
     group = LocalControlGroup(
         name="Radiator",
         control_type=ControlType.SWITCH,
@@ -152,14 +149,13 @@ def test_local_control_group_evaluation_is_independently_testable() -> None:
         available_actuator_entity_ids=["switch.radiator"],
         previous_demand=False,
         hysteresis=0.3,
-        global_override=GlobalOverride(target_temperature=17.0),
         zone_frost_protection_min_temp=18.0,
         global_frost_protection_min_temp=7.0,
     )
 
     assert evaluation.current_temperature == 17.6
     assert evaluation.target_temperature == 19.0
-    assert evaluation.effective_target_temperature == 18.0
+    assert evaluation.effective_target_temperature == 19.0
     assert evaluation.demand is True
     assert evaluation.available_actuator_entity_ids == ["switch.radiator"]
 

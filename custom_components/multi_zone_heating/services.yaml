@@ -1,3 +1,0 @@
-clear_override:
-  name: Clear Override
-  description: Clear the active global override target temperature for all loaded multi-zone heating entries.
