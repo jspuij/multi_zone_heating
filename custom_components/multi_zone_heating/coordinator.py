@@ -563,6 +563,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         force_off: bool,
     ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
+        zone_master_active = zone.enabled and not force_off
+
         for entity_id in zone.climate_entity_ids:
             if not self._entity_is_available(entity_id):
                 continue
@@ -576,8 +578,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
 
             hvac_modes = self._read_supported_hvac_modes(entity_id)
-            if evaluation.demand and not force_off:
-                if HVACMode.HEAT in hvac_modes and current_hvac_mode == HVACMode.OFF:
+            if zone_master_active:
+                if HVACMode.HEAT in hvac_modes and current_hvac_mode != HVACMode.HEAT:
                     await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.HEAT)
 
                 target_temperature = evaluation.effective_target_temperature
