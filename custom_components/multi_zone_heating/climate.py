@@ -70,7 +70,7 @@ class MultiZoneHeatingClimateBase(CoordinatorEntity, ClimateEntity):
 
 
 class MultiZoneHeatingSystemClimate(MultiZoneHeatingClimateBase):
-    """Top-level climate entity for system-wide override control."""
+    """Top-level climate entity for system-wide master commands."""
 
     def __init__(self, entry: MultiZoneHeatingConfigEntry) -> None:
         """Initialize the climate entity."""
@@ -97,13 +97,18 @@ class MultiZoneHeatingSystemClimate(MultiZoneHeatingClimateBase):
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the displayed target temperature."""
+        """Return the shared zone target when the system is aligned."""
         data = self.coordinator.data
         if data is None:
             return None
-        if data.global_override is not None:
-            return data.global_override.target_temperature
-        return None
+        targets = {
+            evaluation.target_temperature
+            for evaluation in data.zone_evaluations
+            if evaluation.target_temperature is not None
+        }
+        if len(targets) != 1:
+            return None
+        return next(iter(targets))
 
     @property
     def current_temperature(self) -> float | None:
@@ -127,15 +132,13 @@ class MultiZoneHeatingSystemClimate(MultiZoneHeatingClimateBase):
     @property
     def min_temp(self) -> float:
         """Return the minimum target temperature the entity should expose."""
-        config_minimums = []
+        config_minimums = [5.0]
         if self.coordinator.config.frost_protection_min_temp is not None:
             config_minimums.append(self.coordinator.config.frost_protection_min_temp)
-        config_minimums.extend(
-            zone.frost_protection_min_temp
-            for zone in self.coordinator.config.zones
-            if zone.frost_protection_min_temp is not None
-        )
-        return min(config_minimums, default=5.0)
+        for zone in self.coordinator.config.zones:
+            if zone.frost_protection_min_temp is not None:
+                config_minimums.append(zone.frost_protection_min_temp)
+        return max(config_minimums)
 
     @property
     def max_temp(self) -> float:
@@ -144,23 +147,19 @@ class MultiZoneHeatingSystemClimate(MultiZoneHeatingClimateBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return system override and demand attributes."""
+        """Return system summary attributes rooted in zone state."""
         data = self.coordinator.data
         if data is None:
             return {}
 
-        override_target_temperature = None
-        override_active = False
-        if data.global_override is not None:
-            override_active = data.global_override.active
-            override_target_temperature = data.global_override.target_temperature
-
         return {
-            "override_active": override_active,
-            "override_target_temperature": override_target_temperature,
             "zones_calling_for_heat": [
                 evaluation.name for evaluation in data.zone_evaluations if evaluation.demand
             ],
+            "zone_target_temperatures": {
+                evaluation.name: evaluation.target_temperature
+                for evaluation in data.zone_evaluations
+            },
             "global_force_off": data.global_force_off,
         }
 
@@ -169,12 +168,14 @@ class MultiZoneHeatingSystemClimate(MultiZoneHeatingClimateBase):
         await self.coordinator.async_set_global_force_off(hvac_mode == HVACMode.OFF)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set the global override target temperature."""
+        """Fan a master target change out to every zone climate."""
         target_temperature = kwargs.get("temperature")
         if target_temperature is None:
             return
 
-        await self.coordinator.async_set_global_override(float(target_temperature))
+        await self.coordinator.async_set_all_zone_target_temperatures(
+            float(target_temperature)
+        )
 
 
 class MultiZoneHeatingZoneClimate(MultiZoneHeatingClimateBase):

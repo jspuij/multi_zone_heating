@@ -94,14 +94,6 @@ class RuntimeData:
 
 
 @dataclass(slots=True)
-class GlobalOverride:
-    """Represents the optional system-wide target override."""
-
-    target_temperature: float
-    active: bool = True
-
-
-@dataclass(slots=True)
 class LocalControlGroupEvaluation:
     """Pure evaluation result for a local control group."""
 
@@ -172,7 +164,6 @@ class RuntimeSnapshot:
 
     sensor_values: dict[str, float | None] = field(default_factory=dict)
     target_temperatures: dict[str, float | None] = field(default_factory=dict)
-    global_override: GlobalOverride | None = None
     global_force_off: bool = False
     flow_value: float | None = None
     flow_detected: bool = False

@@ -80,6 +80,15 @@ async def test_config_entry_diagnostics_include_config_and_runtime_state(hass) -
     assert diagnostics["config"]["zones"][0]["control_type"] == "switch"
     assert diagnostics["runtime"]["loaded"] is True
     assert diagnostics["runtime"]["global_force_off"] is False
+    assert diagnostics["runtime"]["system_climate"]["hvac_mode"] == "heat"
+    assert diagnostics["runtime"]["system_climate"]["target_temperature"] == 20.0
+    assert diagnostics["runtime"]["system_climate"]["zone_target_temperatures"] == {
+        "Living Room": 20.0,
+    }
+    assert diagnostics["runtime"]["zone_climates"][0]["name"] == "Living Room"
+    assert diagnostics["runtime"]["zone_climates"][0]["target_temperature"] == 20.0
+    assert diagnostics["runtime"]["zone_climates"][0]["effective_target_temperature"] == 20.0
+    assert diagnostics["runtime"]["zone_climates"][0]["local_groups"][0]["target_temperature"] == 20.0
     assert diagnostics["runtime"]["snapshot"]["flow_detected"] is False
     assert diagnostics["runtime"]["snapshot"]["relay_runtime_state"]["is_on"] is True
     assert diagnostics["runtime"]["snapshot"]["zone_evaluations"][0]["name"] == "Living Room"

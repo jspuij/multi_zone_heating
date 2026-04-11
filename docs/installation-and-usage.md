@@ -9,11 +9,11 @@ The integration evaluates heat demand across multiple configured zones and coord
 In version `0.2.0`, it can:
 
 - read one or more temperature sensors per zone or local control group
-- read a target temperature from either a `climate` entity or a `number`/`input_number`
+- persist one owned target temperature per zone
 - drive one or more climate actuators for a climate-based zone
 - drive one or more switch actuators for a switch-based zone
 - drive one or more number actuators for a number-based zone
-- expose system-level control entities for override and force-off behavior
+- expose system-level control entities for master target fan-out and force-off behavior
 - expose diagnostics for demand, relay state, and missing-flow warnings
 
 ## Before You Start
@@ -27,7 +27,6 @@ You should already have:
 Optional but supported:
 
 - a flow sensor entity
-- target temperatures exposed through `climate`, `number`, or `input_number` entities
 
 ## Installation
 
@@ -193,15 +192,15 @@ After setup, the integration creates several runtime entities.
 
 - `climate.<entry>_system`
   - exposed as the system climate entity
-  - setting its target temperature creates a system-wide override
+  - setting its target temperature fans the same setpoint out to every zone climate
   - setting HVAC mode to `off` activates global force-off
   - setting HVAC mode to `heat` clears global force-off
+  - if zone targets differ, its displayed `target_temperature` is empty instead of becoming a separate source of truth
 
 Attributes include:
 
-- `override_active`
-- `override_target_temperature`
 - `zones_calling_for_heat`
+- `zone_target_temperatures`
 - `global_force_off`
 
 ### Binary Sensors
@@ -240,27 +239,13 @@ Diagnostic attributes include:
 - `flow_value`
 - `zones_calling_for_heat`
 
-## Services
-
-The integration registers this service:
-
-- `multi_zone_heating.clear_override`
-  - clears the active global override target temperature for all loaded integration entries
-
-Example service call:
-
-```yaml
-service: multi_zone_heating.clear_override
-data: {}
-```
-
 ## Day-To-Day Usage
 
 Typical runtime usage is:
 
 1. Leave each zone target at its normal room target.
 2. Let the integration decide which zones currently demand heat.
-3. Use the system climate entity only when you want a temporary whole-system override.
+3. Use the system climate entity when you want to push one setpoint to every zone at once.
 4. Use the global force-off switch when you want the whole system disabled without reconfiguring zones.
 5. Disable individual zones with their zone-enabled switches when needed.
 
@@ -335,4 +320,4 @@ Check the relay-state sensor attributes, especially `hold_reason`.
 - switch-group setup
 - number-group setup
 - created entities in the device page
-- example dashboard card showing override and diagnostics
+- example dashboard card showing system fan-out and diagnostics

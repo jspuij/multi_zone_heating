@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 
 from .const import (
     CONFIG_ENTRY_VERSION,
@@ -82,18 +82,6 @@ async def async_setup_entry(
     )
     domain_data[entry.entry_id] = entry.runtime_data
 
-    if not hass.services.has_service(DOMAIN, "clear_override"):
-
-        async def _async_handle_clear_override(_call: ServiceCall) -> None:
-            """Clear overrides across loaded integration entries."""
-            await _async_clear_overrides(hass)
-
-        hass.services.async_register(
-            DOMAIN,
-            "clear_override",
-            _async_handle_clear_override,
-        )
-
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -110,15 +98,7 @@ async def async_unload_entry(
         if coordinator is not None:
             await coordinator.async_stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-        if not hass.data.get(DOMAIN):
-            hass.services.async_remove(DOMAIN, "clear_override")
     return unloaded
-
-async def _async_clear_overrides(hass: HomeAssistant) -> None:
-    """Clear runtime overrides for all loaded entries."""
-    for runtime_data in hass.data.get(DOMAIN, {}).values():
-        if runtime_data.coordinator is not None:
-            await runtime_data.coordinator.async_clear_global_override()
 async def _async_update_listener(
     hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,
@@ -179,20 +159,22 @@ def _migrate_zone_data(
     target_entity_id = migrated_zone.get("target_entity_id")
     zone_name = migrated_zone.get("name", "<unknown>")
     target_temperature = _read_legacy_target_temperature(hass, target_entity_id)
+    fallback_target_temperature = initial_zone_target_temperature(
+        global_frost_protection_min_temp,
+        migrated_zone.get("frost_protection_min_temp"),
+    )
     if target_temperature is None:
-        _LOGGER.error(
-            "Cannot migrate zone %s because target entity %s has no usable current target state",
+        _LOGGER.warning(
+            "Migrating zone %s without a readable target from %s; using fallback target %s",
             zone_name,
             target_entity_id,
+            fallback_target_temperature,
         )
-        return None
+        target_temperature = fallback_target_temperature
 
     migrated_zone["target_temperature"] = max(
         target_temperature,
-        initial_zone_target_temperature(
-            global_frost_protection_min_temp,
-            migrated_zone.get("frost_protection_min_temp"),
-        ),
+        fallback_target_temperature,
     )
     migrated_zone.pop("target_source", None)
     migrated_zone.pop("target_entity_id", None)
