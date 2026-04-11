@@ -230,6 +230,44 @@ async def test_zone_climate_hvac_mode_toggles_zone_enabled(hass) -> None:
     assert entry.data["zones"][0]["enabled"] is True
 
 
+async def test_zone_enabled_switch_and_zone_climate_stay_synchronized(hass) -> None:
+    """Zone enable switch and climate HVAC mode should project the same state."""
+    await _setup_loaded_entry(hass)
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": "switch.multi_zone_heating_living_room_enabled"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    switch_state = hass.states.get("switch.multi_zone_heating_living_room_enabled")
+    assert climate_state is not None
+    assert switch_state is not None
+    assert climate_state.state == "off"
+    assert switch_state.state == STATE_OFF
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {
+            ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+            "hvac_mode": "heat",
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    switch_state = hass.states.get("switch.multi_zone_heating_living_room_enabled")
+    assert climate_state is not None
+    assert switch_state is not None
+    assert climate_state.state == "heat"
+    assert switch_state.state == STATE_ON
+
+
 async def test_zone_climate_target_restores_after_entry_reload(hass) -> None:
     """Reloading the entry should restore the persisted owned zone target."""
     entry, _ = await _setup_loaded_entry(hass)
@@ -481,6 +519,11 @@ async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -
     assert relay_state is not None
     assert relay_state.state == "forced_off"
 
+    zone_climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert zone_climate_state is not None
+    assert zone_climate_state.state == "off"
+    assert zone_climate_state.attributes["hvac_action"] == "off"
+
 
 async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
     """Zone enable changes should update the config entry data."""
@@ -503,3 +546,26 @@ async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
     )
     await hass.async_block_till_done()
     assert entry.data["zones"][0]["enabled"] is True
+
+
+async def test_zone_climate_keeps_heat_mode_but_reports_off_action_during_global_force_off(
+    hass,
+) -> None:
+    """Global force-off should not disable the zone, only suppress active heating."""
+    await _setup_loaded_entry(hass)
+
+    await hass.services.async_call(
+        "switch",
+        "turn_on",
+        {"entity_id": "switch.multi_zone_heating_global_force_off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    switch_state = hass.states.get("switch.multi_zone_heating_living_room_enabled")
+    assert climate_state is not None
+    assert switch_state is not None
+    assert climate_state.state == "heat"
+    assert climate_state.attributes["hvac_action"] == "off"
+    assert switch_state.state == STATE_ON

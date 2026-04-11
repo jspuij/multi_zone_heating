@@ -102,21 +102,36 @@ def _zone_climate_diagnostics(coordinator: Any) -> list[dict[str, Any]] | None:
         evaluation = evaluations_by_name.get(zone.name)
         if evaluation is None:
             continue
-        diagnostics.append(_zone_diagnostics(zone, evaluation))
+        diagnostics.append(
+            _zone_diagnostics(
+                zone,
+                evaluation,
+                global_force_off=coordinator.data.global_force_off,
+            )
+        )
     return diagnostics
 
 
-def _zone_diagnostics(zone: ZoneConfig, evaluation: ZoneEvaluation) -> dict[str, Any]:
+def _zone_diagnostics(
+    zone: ZoneConfig,
+    evaluation: ZoneEvaluation,
+    *,
+    global_force_off: bool,
+) -> dict[str, Any]:
     """Assemble one zone climate diagnostics record."""
     return {
         "name": zone.name,
         "hvac_mode": "heat" if zone.enabled else "off",
         "hvac_action": (
-            "off" if not zone.enabled else "heating" if evaluation.demand else "idle"
+            "off"
+            if not zone.enabled or global_force_off
+            else "heating" if evaluation.demand else "idle"
         ),
         "control_type": zone.control_type.value,
         "aggregation_mode": zone.aggregation_mode.value,
         "enabled": zone.enabled,
+        "demand": evaluation.demand,
+        "global_force_off": global_force_off,
         "target_temperature": evaluation.target_temperature,
         "effective_target_temperature": evaluation.effective_target_temperature,
         "current_temperature": evaluation.current_temperature,

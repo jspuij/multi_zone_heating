@@ -199,12 +199,18 @@ class MultiZoneHeatingZoneClimate(MultiZoneHeatingClimateBase):
     @property
     def hvac_action(self) -> HVACAction | None:
         """Return whether the zone is actively demanding heat."""
-        evaluation = self.coordinator.get_zone_evaluation(self._zone_name)
-        if evaluation is None:
+        data = self.coordinator.data
+        if data is None:
             return None
 
         zone = self.coordinator.get_zone_config(self._zone_name)
-        if zone is None or not zone.enabled:
+        evaluation = self.coordinator.get_zone_evaluation(self._zone_name)
+        if (
+            zone is None
+            or evaluation is None
+            or not zone.enabled
+            or data.global_force_off
+        ):
             return HVACAction.OFF
         return HVACAction.HEATING if evaluation.demand else HVACAction.IDLE
 
