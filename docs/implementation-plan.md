@@ -32,6 +32,7 @@ Version 1 includes:
 - Global and per-zone frost protection minimums
 - Zone and system demand entities
 - Top-level climate entity with master control semantics
+- Slave climate HVAC mode following the virtual zone master instead of demand edges
 - Diagnostics and warnings
 - Config migration away from `target_source` and `target_entity_id`
 
@@ -156,6 +157,7 @@ Support all three zone and actuator control styles with zone climates as masters
 Deliverables:
 
 - Slave climate zone handling
+- Slave climate target sync while zone-enabled master state owns `heat` or `off`
 - Switch local control group handling
 - Number local control group handling
 - Shared zone target behavior across groups
@@ -181,6 +183,7 @@ Deliverables:
 - Numeric flow threshold support
 - Demand-without-flow warning handling
 - Per-zone enable or disable
+- Zone climate HVAC mode aligned with zone enable or disable state
 - Global force-off behavior
 - Top-level climate semantics aligned with zone-owned targets
 
@@ -225,6 +228,7 @@ Related stories:
 - The zone climate is the only source of truth for that zone target
 - External climate entities, if configured, are slave actuators only
 - The coordinator must not read target temperature from slave entities
+- The zone climate `hvac_mode` is the canonical enabled or disabled state for the zone
 
 ### Zone Climate Temperature Presentation
 
@@ -240,6 +244,13 @@ Related stories:
 - `heat` clears global force-off
 - If it supports target writes, they must update zone-owned targets through integration logic
 - It must not reintroduce external target-source ownership indirectly
+
+### Slave Climate Behavior
+
+- Slave climate targets follow the zone-owned target while the zone is enabled
+- Slave climate HVAC mode follows the virtual zone or global master state, not momentary demand transitions
+- Clearing zone demand must not turn slave climates `off` by itself
+- Zone disable and global force-off may turn slave climates `off` or apply a configured fallback target where `off` is unsupported
 
 ### Frost Protection
 

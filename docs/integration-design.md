@@ -51,11 +51,12 @@ The integration computes one demand state per zone.
 
 The zone climate entity is the master target interface for the zone. Every actuator in the zone is a slave:
 
-- Slave `climate` actuators receive target and HVAC commands from the coordinator
+- Slave `climate` actuators receive target commands from the coordinator and follow the virtual zone or system master for HVAC mode
 - Slave `switch` actuators are turned on or off by the coordinator
 - Slave `number` actuators receive active and inactive values from the coordinator
 
 Downstream actuator state never acts as the source of truth for zone targets.
+For climate zones, demand affects relay and idle or heating state, but not whether the slave thermostat stays in `heat` or `off`.
 
 ### Local Control Group
 
@@ -277,9 +278,11 @@ Per zone:
 ### Suggested Actuator Logic
 
 - `climate`
-  - When zone demand is on, set all slave climate entities in the zone to the zone target
-  - When zone demand is off, set HVAC mode to `off` where supported
-  - If `off` is unavailable, set a configured low target temperature instead
+  - When a zone is enabled and not globally forced off, keep supported slave climate entities in `heat`
+  - While a zone is enabled, set all slave climate entities in the zone to the zone target
+  - When zone demand is off, the zone may be idle but slave climates do not switch `off` only because demand cleared
+  - When a zone is disabled or global force-off is active, set HVAC mode to `off` where supported
+  - If `off` is unavailable, set a configured low target temperature instead when the zone is disabled or globally forced off
 - `switch`
   - Each local control group turns all of its actuators on or off together
 - `number`
@@ -337,6 +340,7 @@ Recommended initial tests:
 - Local group demand behavior from local sensor sets
 - Group-level actuation for `switch` and `number`
 - Zone-wide synchronized actuation for slave `climate` entities
+- Slave climate HVAC mode following virtual zone `heat` or `off` instead of demand transitions
 - Aggregate demand logic
 - Multi-actuator availability behavior
 - Minimum relay on or off time enforcement
@@ -385,6 +389,7 @@ Version 1 behavior:
 Master / slave behavior:
 
 - Setting a zone climate target updates that zone's persisted target
+- Setting a zone climate HVAC mode to `off` disables that zone and `heat` enables it
 - The coordinator reads zone targets from zone climate state only
 - Downstream actuators never provide target input
 - Setting the system climate target may fan out to zone climates, but zone climates remain the only per-zone source of truth

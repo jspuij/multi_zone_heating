@@ -156,9 +156,11 @@ so that the zone behaves as one heating area.
 
 Acceptance criteria:
 
-- When a climate zone demands heat, all slave climate entities in the zone are driven to the zone target
-- When a climate zone no longer demands heat, slave climate entities are set to HVAC mode `off` where supported
-- If a climate entity does not support `off`, a configured low target temperature is used instead
+- While a climate zone is enabled, all slave climate entities in the zone are driven to the zone target
+- Slave climate entities follow the virtual zone master for HVAC mode rather than switching `heat` or `off` on every demand transition
+- When a climate zone no longer demands heat, slave climate entities may remain in `heat` while the relay and zone demand logic go idle
+- When a zone is disabled or global force-off is active, slave climate entities are set to HVAC mode `off` where supported
+- If a climate entity does not support `off`, a configured low target temperature is used instead when the zone is disabled or globally forced off
 - Slave climate entities do not provide the source of truth for the zone target
 
 #### US-011 Control switch local groups independently
@@ -250,6 +252,8 @@ so that I can temporarily disable heating in that zone.
 Acceptance criteria:
 
 - Each zone exposes an enable or disable control
+- The zone climate `hvac_mode` is an authoritative `heat` or `off` control for that zone
+- Any additional zone enable surface stays synchronized with the zone climate `hvac_mode`
 - A disabled zone does not generate demand
 - Disabling a zone updates downstream actuation accordingly
 
@@ -291,6 +295,7 @@ Acceptance criteria:
 - The integration exposes one climate entity per zone
 - Setting zone target temperature updates the integration-owned persisted target
 - The zone climate shows `current_temperature` from the configured zone aggregation logic
+- The zone climate uses `hvac_mode` `heat` and `off` to represent whether the zone is enabled
 - The zone climate does not proxy another entity as its target source
 
 #### US-021 Expose a top-level climate entity

@@ -128,10 +128,11 @@ You will configure:
 
 Behavior:
 
-- when the zone demands heat, the integration pushes the effective target temperature to the configured climate entities
-- if the climate entity supports `heat`, it is switched from `off` to `heat` when demand starts
-- when demand stops, the integration turns the climate entity `off` if supported
-- if `off` is not supported, it can instead write the configured fallback temperature
+- while the zone is enabled, the integration pushes the effective target temperature to the configured climate entities
+- slave climate entities follow the virtual zone master for `heat` or `off`
+- when demand stops, the zone becomes idle but slave climates do not switch `off` just because demand cleared
+- when the zone is disabled, or global force-off is active, the integration turns the climate entity `off` if supported
+- if `off` is not supported, it can instead write the configured fallback temperature when the zone is disabled or globally forced off
 
 ### Switch Zone
 
@@ -190,6 +191,11 @@ After setup, the integration creates several runtime entities.
 
 ### Climate
 
+- `climate.<entry>_<zone>`
+  - exposed as the virtual climate entity for one zone
+  - setting its target temperature updates the integration-owned zone target
+  - setting HVAC mode to `off` disables that zone
+  - setting HVAC mode to `heat` re-enables that zone
 - `climate.<entry>_system`
   - exposed as the system climate entity
   - setting its target temperature fans the same setpoint out to every zone climate
@@ -247,7 +253,7 @@ Typical runtime usage is:
 2. Let the integration decide which zones currently demand heat.
 3. Use the system climate entity when you want to push one setpoint to every zone at once.
 4. Use the global force-off switch when you want the whole system disabled without reconfiguring zones.
-5. Disable individual zones with their zone-enabled switches when needed.
+5. Disable individual zones with their zone climate HVAC mode or the mirrored zone-enabled switch when needed.
 
 ## Example Scenarios
 
@@ -256,7 +262,7 @@ Typical runtime usage is:
 - Each room has one or more temperature sensors.
 - Each room has one or more climate TRV entities.
 - Each room target is owned by the integration.
-- The integration writes effective target temperatures to the TRVs and runs the shared boiler relay when any room demands heat.
+- The integration writes effective target temperatures to the TRVs, keeps them aligned to the virtual zone master state, and runs the shared boiler relay when any room demands heat.
 
 ### Example 2: Switch-Driven Zone Valves
 
