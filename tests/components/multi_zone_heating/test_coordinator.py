@@ -91,9 +91,18 @@ def _register_recording_climate_services(hass) -> tuple[list[dict[str, object]],
 
     async def _record_set_temperature(call: ServiceCall) -> None:
         temperature_calls.append(dict(call.data))
+        entity_id = call.data["entity_id"]
+        state = hass.states.get(entity_id)
+        attributes = dict(state.attributes) if state is not None else {}
+        attributes["temperature"] = call.data["temperature"]
+        hass.states.async_set(entity_id, state.state if state is not None else HVACMode.HEAT, attributes)
 
     async def _record_set_hvac_mode(call: ServiceCall) -> None:
         hvac_mode_calls.append(dict(call.data))
+        entity_id = call.data["entity_id"]
+        state = hass.states.get(entity_id)
+        attributes = dict(state.attributes) if state is not None else {}
+        hass.states.async_set(entity_id, call.data[ATTR_HVAC_MODE], attributes)
 
     hass.services.async_register("climate", SERVICE_SET_TEMPERATURE, _record_set_temperature)
     hass.services.async_register("climate", SERVICE_SET_HVAC_MODE, _record_set_hvac_mode)
@@ -106,6 +115,7 @@ def _register_recording_number_services(hass) -> list[dict[str, object]]:
 
     async def _record_set_value(call: ServiceCall) -> None:
         calls.append(dict(call.data))
+        hass.states.async_set(call.data["entity_id"], str(call.data[ATTR_VALUE]))
 
     hass.services.async_register("number", SERVICE_SET_VALUE, _record_set_value)
     return calls
@@ -297,6 +307,56 @@ async def test_coordinator_dispatches_climate_targets(hass) -> None:
     await coordinator.async_stop()
 
 
+async def test_coordinator_keeps_owned_target_when_slave_climate_target_changes(hass) -> None:
+    """Slave climate targets should not replace the zone-owned target."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set(
+        "climate.radiator_a",
+        "heat",
+        {"temperature": 18.0, "hvac_modes": [HVACMode.HEAT, HVACMode.OFF]},
+    )
+    hass.states.async_set("switch.boiler", "off")
+    _register_recording_switch_services(hass)
+    climate_calls, _ = _register_recording_climate_services(hass)
+
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        IntegrationConfig(
+            main_relay_entity_id="switch.boiler",
+            zones=[
+                ZoneConfig(
+                    name="Living Room",
+                    control_type=ControlType.CLIMATE,
+                    target_temperature=21.0,
+                    sensor_entity_ids=["sensor.living_room_temperature"],
+                    climate_entity_ids=["climate.radiator_a"],
+                    aggregation_mode=AggregationMode.AVERAGE,
+                )
+            ],
+        ),
+    )
+
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert climate_calls == [{"entity_id": "climate.radiator_a", "temperature": 21.0}]
+
+    climate_calls.clear()
+    hass.states.async_set(
+        "climate.radiator_a",
+        "heat",
+        {"temperature": 24.0, "hvac_modes": [HVACMode.HEAT, HVACMode.OFF]},
+    )
+
+    await coordinator.async_request_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.target_temperatures["Living Room"] == 21.0
+    assert coordinator.data.zone_evaluations[0].target_temperature == 21.0
+    await coordinator.async_stop()
+
+
 async def test_coordinator_restores_heat_mode_before_setting_target(hass) -> None:
     """Climate zones should resume heat mode before pushing the target again."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
@@ -447,6 +507,55 @@ async def test_coordinator_dispatches_number_group_values(hass) -> None:
     await hass.async_block_till_done()
 
     assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 100.0}]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_number_groups_keep_using_the_owned_zone_target(hass) -> None:
+    """Number groups should reevaluate against the zone-owned target only."""
+    hass.states.async_set("sensor.floor_temperature", "19.4")
+    hass.states.async_set("number.floor_valve", "0")
+    hass.states.async_set("switch.boiler", "off")
+    _register_recording_switch_services(hass)
+    number_calls = _register_recording_number_services(hass)
+
+    zone = ZoneConfig(
+        name="Floor",
+        control_type=ControlType.NUMBER,
+        target_temperature=20.0,
+        local_groups=[
+            LocalControlGroup(
+                name="Valve",
+                control_type=ControlType.NUMBER,
+                actuator_entity_ids=["number.floor_valve"],
+                sensor_entity_ids=["sensor.floor_temperature"],
+                aggregation_mode=AggregationMode.AVERAGE,
+                number_semantic_type=NumberSemanticType.PERCENTAGE,
+                active_value=100.0,
+                inactive_value=0.0,
+            )
+        ],
+    )
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        IntegrationConfig(
+            main_relay_entity_id="switch.boiler",
+            zones=[zone],
+        ),
+    )
+
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 100.0}]
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].local_groups[0].target_temperature == 20.0
+
+    number_calls.clear()
+    await coordinator.async_set_zone_target_temperature("Floor", 19.0)
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].local_groups[0].target_temperature == 19.0
+    assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 0.0}]
     await coordinator.async_stop()
 
 
