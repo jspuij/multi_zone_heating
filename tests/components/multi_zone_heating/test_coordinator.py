@@ -559,6 +559,60 @@ async def test_coordinator_number_groups_keep_using_the_owned_zone_target(hass) 
     await coordinator.async_stop()
 
 
+async def test_coordinator_resends_number_command_after_external_drift(hass) -> None:
+    """External actuator drift should clear stale pending number commands."""
+    hass.states.async_set("sensor.floor_temperature", "19.0")
+    hass.states.async_set("number.floor_valve", "0")
+    hass.states.async_set("switch.boiler", "off")
+    _register_recording_switch_services(hass)
+    number_calls: list[dict[str, object]] = []
+
+    async def _record_set_value(call: ServiceCall) -> None:
+        number_calls.append(dict(call.data))
+
+    hass.services.async_register("number", SERVICE_SET_VALUE, _record_set_value)
+
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        IntegrationConfig(
+            main_relay_entity_id="switch.boiler",
+            zones=[
+                ZoneConfig(
+                    name="Floor",
+                    control_type=ControlType.NUMBER,
+                    target_temperature=20.0,
+                    local_groups=[
+                        LocalControlGroup(
+                            name="Valve",
+                            control_type=ControlType.NUMBER,
+                            actuator_entity_ids=["number.floor_valve"],
+                            sensor_entity_ids=["sensor.floor_temperature"],
+                            aggregation_mode=AggregationMode.AVERAGE,
+                            number_semantic_type=NumberSemanticType.PERCENTAGE,
+                            active_value=100.0,
+                            inactive_value=0.0,
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 100.0}]
+
+    number_calls.clear()
+    hass.states.async_set("number.floor_valve", "50")
+
+    await coordinator.async_request_refresh()
+    await hass.async_block_till_done()
+
+    assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 100.0}]
+    await coordinator.async_stop()
+
+
 async def test_coordinator_ignores_groups_with_no_available_actuators(hass) -> None:
     """The relay should stay off when a demanding group has no available actuators left."""
     hass.states.async_set("sensor.floor_temperature", "19.0")

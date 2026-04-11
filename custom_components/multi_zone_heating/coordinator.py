@@ -511,15 +511,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
             current_hvac_mode = self._read_climate_hvac_mode(entity_id)
             if current_hvac_mode is not None:
-                previous_hvac_mode = self._remember_observed_climate_hvac_mode(
-                    entity_id,
-                    current_hvac_mode,
-                )
-                self._clear_climate_hvac_mode_if_drifted(
-                    entity_id,
-                    current_hvac_mode,
-                    previous_hvac_mode,
-                )
                 self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
 
             hvac_modes = self._read_supported_hvac_modes(entity_id)
