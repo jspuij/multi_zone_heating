@@ -527,6 +527,53 @@ async def test_coordinator_turns_climate_zone_off_when_global_force_off_is_enabl
     await coordinator.async_stop()
 
 
+async def test_coordinator_retries_climate_off_when_slave_state_does_not_change(hass) -> None:
+    """Forced-off climate commands should be retried until the slave state reflects them."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set(
+        "climate.radiator_a",
+        "heat",
+        {"temperature": 20.0, "hvac_modes": [HVACMode.HEAT, HVACMode.OFF]},
+    )
+    hass.states.async_set("switch.boiler", "off")
+    _register_recording_switch_services(hass)
+
+    hvac_mode_calls: list[dict[str, object]] = []
+
+    async def _record_set_temperature_noop(call: ServiceCall) -> None:
+        del call
+
+    async def _record_set_hvac_mode_without_state_change(call: ServiceCall) -> None:
+        hvac_mode_calls.append(dict(call.data))
+
+    hass.services.async_register("climate", SERVICE_SET_TEMPERATURE, _record_set_temperature_noop)
+    hass.services.async_register(
+        "climate",
+        SERVICE_SET_HVAC_MODE,
+        _record_set_hvac_mode_without_state_change,
+    )
+
+    coordinator = MultiZoneHeatingCoordinator(hass, _build_climate_config())
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    hvac_mode_calls.clear()
+
+    await coordinator.async_set_global_force_off(True)
+    await hass.async_block_till_done()
+
+    assert hvac_mode_calls == [{"entity_id": "climate.radiator_a", ATTR_HVAC_MODE: HVACMode.OFF}]
+
+    await coordinator.async_request_refresh()
+    await hass.async_block_till_done()
+
+    assert hvac_mode_calls == [
+        {"entity_id": "climate.radiator_a", ATTR_HVAC_MODE: HVACMode.OFF},
+        {"entity_id": "climate.radiator_a", ATTR_HVAC_MODE: HVACMode.OFF},
+    ]
+    await coordinator.async_stop()
+
+
 async def test_coordinator_restores_climate_zone_heat_when_global_force_off_is_cleared(
     hass,
 ) -> None:
