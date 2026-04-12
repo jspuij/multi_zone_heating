@@ -2,7 +2,7 @@
 
 `multi_zone_heating` is a custom Home Assistant integration for coordinating multiple heating zones behind a shared main relay.
 
-Version `0.2.0` is the current release. It supports UI-based setup, climate- and actuator-driven zones, a shared relay, optional flow diagnostics, and a small set of runtime control entities for master commands and operations.
+Version `0.3.0` is the current release. It supports UI-based setup, climate- and actuator-driven zones, a shared relay, optional flow diagnostics, and a small set of runtime control entities for master commands and operations.
 
 ## Current Capabilities
 
@@ -59,4 +59,4 @@ Once configured, the integration creates:
 ## Notes
 
 - Home Assistant expects `custom_components/multi_zone_heating/strings.json` and `custom_components/multi_zone_heating/translations/en.json` to stay in sync. Update both files together when config-flow copy changes.
-- Version `0.2.0` is still intentionally narrow. The integration is usable, but the documentation also calls out current limits so users know what is and is not implemented yet.
+- Version `0.3.0` is still intentionally narrow. The integration is usable, but the documentation also calls out current limits so users know what is and is not implemented yet.
