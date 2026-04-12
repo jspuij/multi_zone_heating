@@ -27,13 +27,6 @@ class ControlType(StrEnum):
     SWITCH = "switch"
 
 
-class TargetSourceType(StrEnum):
-    """Supported target temperature source types."""
-
-    CLIMATE = "climate"
-    INPUT_NUMBER = "input_number"
-
-
 class NumberSemanticType(StrEnum):
     """Supported meanings for number-based actuators."""
 
@@ -62,8 +55,7 @@ class ZoneConfig:
 
     name: str
     control_type: ControlType
-    target_source: TargetSourceType
-    target_entity_id: str
+    target_temperature: float
     sensor_entity_ids: list[str] = field(default_factory=list)
     climate_entity_ids: list[str] = field(default_factory=list)
     climate_off_fallback_temperature: float | None = None
@@ -99,14 +91,6 @@ class RuntimeData:
     title: str = ""
     config: IntegrationConfig = field(default_factory=IntegrationConfig)
     coordinator: MultiZoneHeatingCoordinator | None = None
-
-
-@dataclass(slots=True)
-class GlobalOverride:
-    """Represents the optional system-wide target override."""
-
-    target_temperature: float
-    active: bool = True
 
 
 @dataclass(slots=True)
@@ -180,7 +164,6 @@ class RuntimeSnapshot:
 
     sensor_values: dict[str, float | None] = field(default_factory=dict)
     target_temperatures: dict[str, float | None] = field(default_factory=dict)
-    global_override: GlobalOverride | None = None
     global_force_off: bool = False
     flow_value: float | None = None
     flow_detected: bool = False

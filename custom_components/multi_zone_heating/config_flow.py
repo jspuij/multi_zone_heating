@@ -11,8 +11,9 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
-from .const import DEFAULT_TITLE, DOMAIN
-from .models import AggregationMode, ControlType, NumberSemanticType, TargetSourceType
+from .const import DEFAULT_TITLE, CONFIG_ENTRY_VERSION, DOMAIN
+from .models import AggregationMode, ControlType, NumberSemanticType
+from .target_temperature import initial_zone_target_temperature
 
 CONF_ACTION = "action"
 CONF_ACTIVE_VALUE = "active_value"
@@ -37,8 +38,7 @@ CONF_NUMBER_SEMANTIC_TYPE = "number_semantic_type"
 CONF_PRIMARY_SENSOR_ENTITY_ID = "primary_sensor_entity_id"
 CONF_RELAY_OFF_DELAY_SECONDS = "relay_off_delay_seconds"
 CONF_SENSOR_ENTITY_IDS = "sensor_entity_ids"
-CONF_TARGET_ENTITY_ID = "target_entity_id"
-CONF_TARGET_SOURCE = "target_source"
+CONF_TARGET_TEMPERATURE = "target_temperature"
 CONF_ZONE = "zone"
 CONF_ZONES = "zones"
 
@@ -139,22 +139,6 @@ class _MultiZoneHeatingFlowBase:
                             for item in ControlType
                         ],
                         mode="dropdown",
-                    )
-                ),
-                vol.Required(
-                    CONF_TARGET_SOURCE, default=TargetSourceType.CLIMATE
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": item.value, "label": item.value.replace("_", " ").title()}
-                            for item in TargetSourceType
-                        ],
-                        mode="dropdown",
-                    )
-                ),
-                vol.Required(CONF_TARGET_ENTITY_ID): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain=["climate", "input_number", "number"]
                     )
                 ),
                 vol.Optional(CONF_FROST_PROTECTION_MIN_TEMP): selector.NumberSelector(
@@ -336,20 +320,6 @@ class _MultiZoneHeatingFlowBase:
         if not name:
             return {"base": "zone_name_required"}
 
-        target_source = user_input[CONF_TARGET_SOURCE]
-        target_entity_id = str(user_input[CONF_TARGET_ENTITY_ID])
-
-        if target_source == TargetSourceType.CLIMATE and not target_entity_id.startswith(
-            "climate."
-        ):
-            return {"base": "target_entity_domain_mismatch"}
-
-        if target_source == TargetSourceType.INPUT_NUMBER and not (
-            target_entity_id.startswith("input_number.")
-            or target_entity_id.startswith("number.")
-        ):
-            return {"base": "target_entity_domain_mismatch"}
-
         return {}
 
     def _validate_climate_zone_details(
@@ -423,16 +393,29 @@ class _MultiZoneHeatingFlowBase:
 
     def _build_pending_zone(self, user_input: dict[str, object]) -> None:
         """Store the shared zone fields that apply to all control types."""
+        zone_frost_protection = user_input.get(CONF_FROST_PROTECTION_MIN_TEMP)
         self._pending_zone = {
             CONF_NAME: str(user_input[CONF_NAME]).strip(),
             CONF_ENABLED: user_input[CONF_ENABLED],
             CONF_CONTROL_TYPE: user_input[CONF_CONTROL_TYPE],
-            CONF_TARGET_SOURCE: user_input[CONF_TARGET_SOURCE],
-            CONF_TARGET_ENTITY_ID: user_input[CONF_TARGET_ENTITY_ID],
+            CONF_TARGET_TEMPERATURE: initial_zone_target_temperature(
+                self._config.get(CONF_FROST_PROTECTION_MIN_TEMP),
+                zone_frost_protection
+            ),
             CONF_FROST_PROTECTION_MIN_TEMP: user_input.get(
                 CONF_FROST_PROTECTION_MIN_TEMP
             ),
         }
+
+        if self._editing_zone_index is not None:
+            existing_zone = self._zones()[self._editing_zone_index]
+            self._pending_zone[CONF_TARGET_TEMPERATURE] = existing_zone.get(
+                CONF_TARGET_TEMPERATURE,
+                initial_zone_target_temperature(
+                    self._config.get(CONF_FROST_PROTECTION_MIN_TEMP),
+                    zone_frost_protection,
+                ),
+            )
 
     def _build_climate_zone(self, user_input: dict[str, object]) -> dict[str, object]:
         """Build a complete climate-zone config from pending and detail input."""
@@ -552,8 +535,6 @@ class _MultiZoneHeatingFlowBase:
             CONF_NAME: zone[CONF_NAME],
             CONF_ENABLED: zone.get(CONF_ENABLED, True),
             CONF_CONTROL_TYPE: zone[CONF_CONTROL_TYPE],
-            CONF_TARGET_SOURCE: zone[CONF_TARGET_SOURCE],
-            CONF_TARGET_ENTITY_ID: zone[CONF_TARGET_ENTITY_ID],
             CONF_FROST_PROTECTION_MIN_TEMP: zone.get(CONF_FROST_PROTECTION_MIN_TEMP),
         }
 
@@ -594,7 +575,7 @@ class _MultiZoneHeatingFlowBase:
 class MultiZoneHeatingConfigFlow(_MultiZoneHeatingFlowBase, ConfigFlow, domain=DOMAIN):
     """Config flow for setting up a multi-zone heating system."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
 
     def __init__(self) -> None:
         """Initialize the config flow."""

@@ -29,8 +29,7 @@ def _build_config_entry() -> MockConfigEntry:
                     "name": "Living Room",
                     "enabled": True,
                     "control_type": "switch",
-                    "target_source": "input_number",
-                    "target_entity_id": "input_number.living_room_target",
+                    "target_temperature": 20.0,
                     "local_groups": [
                         {
                             "name": "Radiator",
@@ -63,7 +62,6 @@ def _register_recording_switch_services(hass) -> None:
 async def test_config_entry_diagnostics_include_config_and_runtime_state(hass) -> None:
     """Diagnostics should expose both typed config and live runtime state."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
-    hass.states.async_set("input_number.living_room_target", "20.0")
     hass.states.async_set("sensor.system_flow", "0.0")
     hass.states.async_set("switch.radiator", STATE_OFF)
     hass.states.async_set("switch.boiler", STATE_OFF)
@@ -77,11 +75,24 @@ async def test_config_entry_diagnostics_include_config_and_runtime_state(hass) -
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert diagnostics["config_entry"]["version"] == 1
+    assert diagnostics["config_entry"]["version"] == 2
     assert diagnostics["config"]["main_relay_entity_id"] == "switch.boiler"
     assert diagnostics["config"]["zones"][0]["control_type"] == "switch"
     assert diagnostics["runtime"]["loaded"] is True
     assert diagnostics["runtime"]["global_force_off"] is False
+    assert diagnostics["runtime"]["system_climate"]["hvac_mode"] == "heat"
+    assert diagnostics["runtime"]["system_climate"]["target_temperature"] == 20.0
+    assert diagnostics["runtime"]["system_climate"]["zone_target_temperatures"] == {
+        "Living Room": 20.0,
+    }
+    assert diagnostics["runtime"]["zone_climates"][0]["name"] == "Living Room"
+    assert diagnostics["runtime"]["zone_climates"][0]["hvac_mode"] == "heat"
+    assert diagnostics["runtime"]["zone_climates"][0]["hvac_action"] == "heating"
+    assert diagnostics["runtime"]["zone_climates"][0]["demand"] is True
+    assert diagnostics["runtime"]["zone_climates"][0]["global_force_off"] is False
+    assert diagnostics["runtime"]["zone_climates"][0]["target_temperature"] == 20.0
+    assert diagnostics["runtime"]["zone_climates"][0]["effective_target_temperature"] == 20.0
+    assert diagnostics["runtime"]["zone_climates"][0]["local_groups"][0]["target_temperature"] == 20.0
     assert diagnostics["runtime"]["snapshot"]["flow_detected"] is False
     assert diagnostics["runtime"]["snapshot"]["relay_runtime_state"]["is_on"] is True
     assert diagnostics["runtime"]["snapshot"]["zone_evaluations"][0]["name"] == "Living Room"
@@ -89,3 +100,44 @@ async def test_config_entry_diagnostics_include_config_and_runtime_state(hass) -
     assert diagnostics["runtime"]["snapshot"]["target_temperatures"] == {
         "Living Room": 20.0,
     }
+
+
+async def test_zone_climate_diagnostics_distinguish_idle_disabled_and_forced_off(hass) -> None:
+    """Zone diagnostics should separate demand, zone enable, and global force-off."""
+    hass.states.async_set("sensor.living_room_temperature", "20.5")
+    hass.states.async_set("sensor.system_flow", "0.0")
+    hass.states.async_set("switch.radiator", STATE_OFF)
+    hass.states.async_set("switch.boiler", STATE_OFF)
+    _register_recording_switch_services(hass)
+
+    entry = _build_config_entry()
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    zone = diagnostics["runtime"]["zone_climates"][0]
+    assert zone["hvac_mode"] == "heat"
+    assert zone["hvac_action"] == "idle"
+    assert zone["demand"] is False
+
+    await entry.runtime_data.coordinator.async_set_zone_enabled("Living Room", False)
+    await hass.async_block_till_done()
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    zone = diagnostics["runtime"]["zone_climates"][0]
+    assert zone["hvac_mode"] == "off"
+    assert zone["hvac_action"] == "off"
+    assert zone["demand"] is False
+
+    await entry.runtime_data.coordinator.async_set_zone_enabled("Living Room", True)
+    await entry.runtime_data.coordinator.async_set_global_force_off(True)
+    await hass.async_block_till_done()
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    zone = diagnostics["runtime"]["zone_climates"][0]
+    assert zone["hvac_mode"] == "heat"
+    assert zone["hvac_action"] == "off"
+    assert zone["demand"] is False
+    assert zone["global_force_off"] is True

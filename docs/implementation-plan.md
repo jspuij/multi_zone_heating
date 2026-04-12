@@ -8,7 +8,7 @@ The plan is optimized for:
 
 - Early end-to-end validation
 - Low rework between milestones
-- Clear separation between data modeling, control logic, and Home Assistant entity surfaces
+- Clear separation between data modeling, control logic, runtime ownership, and Home Assistant entity surfaces
 
 ## Version 1 Scope
 
@@ -16,9 +16,12 @@ Version 1 includes:
 
 - Config flow and options flow
 - Multiple zones
+- One virtual climate entity per zone
+- Integration-owned persistence of zone target temperatures
 - Zone control types: `climate`, `switch`, `number`
 - Local control groups for `switch` and `number`
 - Multi-sensor aggregation with `average`, `minimum`, and `primary`
+- Zone climate `current_temperature` derived from the configured aggregation algorithm
 - Global hysteresis
 - Main relay control
 - Numeric flow meter thresholding
@@ -28,8 +31,10 @@ Version 1 includes:
 - Global force-off
 - Global and per-zone frost protection minimums
 - Zone and system demand entities
-- Top-level climate entity with global override target
+- Top-level climate entity with master control semantics
+- Slave climate HVAC mode following the virtual zone master instead of demand edges
 - Diagnostics and warnings
+- Config migration away from `target_source` and `target_entity_id`
 
 ## Architecture Summary
 
@@ -38,102 +43,123 @@ The integration should be built around four layers:
 1. Configuration layer
    Config flow, options flow, config-entry persistence, migration support
 2. Domain model and control logic layer
-   Pure Python models and decision logic for temperatures, demand, overrides, relay state, and fault handling
+   Pure Python models and decision logic for temperatures, demand, frost protection, relay state, and fault handling
 3. Runtime coordinator layer
-   Home Assistant state subscriptions, scheduling, command dispatch, and transition handling
+   Home Assistant state subscriptions, zone-target persistence ownership, scheduling, and slave command dispatch
 4. Entity layer
-   Binary sensors, sensors, switches, and the top-level climate entity
+   Zone climates, system climate, binary sensors, sensors, and switches
 
 ## Delivery Strategy
 
-Build the integration in vertical slices with an emphasis on getting a basic end-to-end system running early.
+Build the integration in vertical slices with an emphasis on getting a stable master / slave model working early.
 
 Recommended order:
 
-1. Scaffold the integration and basic config entry setup
-2. Implement models and pure control logic
-3. Implement runtime coordinator and relay control
-4. Add climate-controlled zones
-5. Add switch and number local control groups
-6. Add flow meter handling and warnings
-7. Add entities, overrides, and top-level climate behavior
-8. Add editing flows, diagnostics polish, and tests
+1. Replace the zone target config model and add migration support
+2. Implement integration-owned zone target persistence
+3. Add zone virtual climate entities
+4. Update runtime coordinator to read zone targets from owned zone climate state only
+5. Update slave actuator dispatch for `climate`, `switch`, and `number`
+6. Add relay, flow, and diagnostics behavior
+7. Add top-level climate behavior aligned with the new model
+8. Finish options flow, diagnostics polish, and tests
 
 ## Milestones
 
-### Milestone 1: Foundation
+### Milestone 1: Schema And Migration
 
 Goal:
-Create a loadable custom integration with config entry plumbing, constants, models, and a testable project structure.
+Replace external target-entity configuration with zone-owned target state and migration support.
 
 Deliverables:
 
-- `custom_components/multi_zone_heating/` scaffold
-- `manifest.json`
-- `__init__.py`
-- `const.py`
-- `models.py`
-- Base config entry setup and unload support
-- Initial test scaffolding
+- Updated config schema without `target_source` or `target_entity_id`
+- Config-entry migration logic
+- Updated config flow and options flow forms
+- Tests for new and migrated config entries
 
 Related stories:
 
 - US-001
 - US-002
+- US-024
 
 ### Milestone 2: Core Decision Engine
 
 Goal:
-Implement pure logic for temperature aggregation, demand state transitions, frost protection, override evaluation, and relay timing.
+Implement pure logic for temperature aggregation, demand state transitions, frost protection, and relay timing using integration-owned zone targets.
 
 Deliverables:
 
-- `control_logic.py`
-- Dataclasses for zones, local groups, actuator targets, and runtime state
+- Updated `models.py`
+- Updated `control_logic.py`
 - Unit tests for aggregation and hysteresis
+- Unit tests that validate zone climate `current_temperature` behavior
 - Unit tests for relay timing rules
 
 Related stories:
 
+- US-005
 - US-006
 - US-007
 - US-008
-- US-013
+- US-009
 - US-014
-- US-020
-- US-021
+- US-015
+- US-022
+- US-023
 
-### Milestone 3: Runtime Coordinator
+### Milestone 3: Zone Climate Ownership
 
 Goal:
-Subscribe to entity changes, evaluate system state, and dispatch commands safely.
+Create the per-zone virtual climate entities and persist zone target temperatures in integration-owned state.
 
 Deliverables:
 
-- `coordinator.py`
+- Zone virtual climate entities in `climate.py`
+- Restore-state behavior for zone targets
+- Zone climate current temperature projection from aggregation logic
+- Coordinator APIs for reading and updating owned zone targets
+
+Related stories:
+
+- US-005
+- US-008
+- US-020
+
+### Milestone 4: Runtime Coordinator
+
+Goal:
+Subscribe to relevant entity changes, evaluate system state, and dispatch commands safely in a strict master / slave model.
+
+Deliverables:
+
+- Updated `coordinator.py`
 - Entity state collection and validation
+- Owned target reads from zone climate state only
 - Scheduled reevaluation support for relay timing
 - Command dispatch helpers
 - Availability tracking for sensors and actuators
 
 Related stories:
 
-- US-008
-- US-012
+- US-009
 - US-013
 - US-014
 - US-015
+- US-016
 
-### Milestone 4: Zone Control Types
+### Milestone 5: Zone Control Types
 
 Goal:
-Support all three zone control styles required for version 1.
+Support all three zone and actuator control styles with zone climates as masters and actuators as slaves.
 
 Deliverables:
 
-- Climate zone handling
-- Switch local control groups
-- Number local control groups
+- Slave climate zone handling
+- Slave climate target sync while zone-enabled master state owns `heat` or `off`
+- Switch local control group handling
+- Number local control group handling
 - Shared zone target behavior across groups
 - Actuator write helpers per control type
 
@@ -141,15 +167,15 @@ Related stories:
 
 - US-003
 - US-004
-- US-005
-- US-009
 - US-010
 - US-011
+- US-012
+- US-013
 
-### Milestone 5: Relay, Flow, and Overrides
+### Milestone 6: Relay, Overrides, And UX
 
 Goal:
-Make whole-system operation reliable and understandable.
+Make whole-system operation reliable and understandable with the new target ownership model.
 
 Deliverables:
 
@@ -157,33 +183,9 @@ Deliverables:
 - Numeric flow threshold support
 - Demand-without-flow warning handling
 - Per-zone enable or disable
+- Zone climate HVAC mode aligned with zone enable or disable state
 - Global force-off behavior
-- Frost protection integration into target resolution
-
-Related stories:
-
-- US-013
-- US-014
-- US-015
-- US-016
-- US-017
-- US-020
-- US-021
-
-### Milestone 6: Entity Surface and UX
-
-Goal:
-Expose the system in Home Assistant with useful entities and a coherent top-level control model.
-
-Deliverables:
-
-- Zone demand binary sensors
-- System demand binary sensor
-- Diagnostic sensors
-- Zone enable switches
-- Global force-off switch
-- Top-level system climate entity
-- `clear_override` service or equivalent action
+- Top-level climate semantics aligned with zone-owned targets
 
 Related stories:
 
@@ -191,24 +193,25 @@ Related stories:
 - US-017
 - US-018
 - US-019
-- US-022
+- US-021
 
-### Milestone 7: Configuration Editing and Quality
+### Milestone 7: Diagnostics And Quality
 
 Goal:
 Make the integration maintainable and ready for real use.
 
 Deliverables:
 
-- Options flow for editing zones and local groups
 - Diagnostics output
 - Integration tests
-- Migration support for evolving config schema
-- User-facing documentation inside the repo
+- Translation updates
+- Documentation updates inside the repo
 
 Related stories:
 
-- US-023
+- US-019
+- US-025
+- US-026
 
 ## Technical Design Decisions
 
@@ -217,25 +220,37 @@ Related stories:
 - Use Home Assistant config flow and options flow only
 - Do not write YAML configuration files
 - Persist user configuration in config entries
+- Persist zone-owned target temperatures in integration-managed state or config
 
-### Flow Meter Handling
+### Zone Climate Ownership
 
-- Flow source is a numeric sensor
-- A configurable threshold determines whether flow is considered present
-- Flow is used to:
-  - delay relay-off until flow falls below threshold
-  - raise warnings when demand exists but flow does not exceed threshold after relay-on
-- Flow is not used to infer zero-demand faults because domestic water heating shares the same meter
+- Each zone has one virtual climate entity owned by this integration
+- The zone climate is the only source of truth for that zone target
+- External climate entities, if configured, are slave actuators only
+- The coordinator must not read target temperature from slave entities
+- The zone climate `hvac_mode` is the canonical enabled or disabled state for the zone
+
+### Zone Climate Temperature Presentation
+
+- `current_temperature` is computed from the configured zone aggregation logic
+- `average` uses the mean of available zone sensors
+- `minimum` uses the lowest available zone sensor
+- `primary` uses the configured primary sensor directly
 
 ### Top-Level Climate Behavior
 
 - Supports `heat` and `off`
 - `off` maps to global force-off
 - `heat` clears global force-off
-- Setting target temperature creates a global override target
-- Override ends when a zone target changes or when explicitly cleared
-- Override persists while HVAC mode is `off`
-- Setting target temperature while `off` stores the override without resuming heating
+- If it supports target writes, they must update zone-owned targets through integration logic
+- It must not reintroduce external target-source ownership indirectly
+
+### Slave Climate Behavior
+
+- Slave climate targets follow the zone-owned target while the zone is enabled
+- Slave climate HVAC mode follows the virtual zone or global master state, not momentary demand transitions
+- Clearing zone demand must not turn slave climates `off` by itself
+- Zone disable and global force-off may turn slave climates `off` or apply a configured fallback target where `off` is unsupported
 
 ### Frost Protection
 
@@ -243,80 +258,3 @@ Related stories:
 - Support global minimum temperature
 - Support per-zone minimum temperature overrides
 - Effective target temperature is never allowed below the applicable frost minimum
-
-## Suggested File Layout
-
-```text
-custom_components/
-  multi_zone_heating/
-    __init__.py
-    manifest.json
-    const.py
-    config_flow.py
-    coordinator.py
-    models.py
-    control_logic.py
-    binary_sensor.py
-    climate.py
-    number.py
-    sensor.py
-    switch.py
-    switch.py
-    climate.py
-    diagnostics.py
-    services.yaml
-    strings.json
-    translations/
-      en.json
-tests/
-  components/
-    multi_zone_heating/
-```
-
-## Risks and Mitigations
-
-### Risk: Complex configuration for local control groups
-
-Mitigation:
-
-- Keep version 1 options flow structured and explicit
-- Favor a small number of required fields
-- Add validation that each local group has both sensors and actuators
-
-### Risk: Climate entity semantics are awkward for "no meaningful target"
-
-Mitigation:
-
-- Expose explicit attributes for override state
-- Retain last override target for compatibility while using `override_active` to express truth
-
-### Risk: Relay timing and flow handling create edge cases
-
-Mitigation:
-
-- Keep timing decisions in pure logic with tests
-- Separate desired relay state from actual relay command timing
-
-### Risk: Availability handling becomes inconsistent between zone types
-
-Mitigation:
-
-- Centralize availability evaluation in shared helpers
-- Test climate zones and local-group zones separately
-
-## Completion Criteria
-
-Version 1 is complete when:
-
-- A user can configure a system fully from the UI
-- All required zone types work
-- Relay behavior is stable
-- Flow warnings and relay-off delay work
-- Override behavior is consistent
-- The top-level climate entity behaves as designed
-- Core logic is covered by tests
-- The integration exposes enough diagnostics for troubleshooting
-
-## Issue Breakdown
-
-Implementation work is split into issue-sized documents under [docs/issues](/Users/jws/Projects/thermostat/docs/issues).

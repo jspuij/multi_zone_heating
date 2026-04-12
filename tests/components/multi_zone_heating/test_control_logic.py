@@ -18,10 +18,8 @@ from custom_components.multi_zone_heating.control_logic import (
 from custom_components.multi_zone_heating.models import (
     AggregationMode,
     ControlType,
-    GlobalOverride,
     LocalControlGroup,
     RelayRuntimeState,
-    TargetSourceType,
     ZoneConfig,
 )
 
@@ -78,18 +76,16 @@ def test_hysteresis_retains_previous_state_inside_band() -> None:
     assert evaluate_hysteresis_demand(20.0, 20.0, previous_demand=True, hysteresis=0.3) is False
 
 
-def test_effective_target_uses_override_and_frost_clamp() -> None:
-    """Global overrides should win and frost protection should clamp upward."""
+def test_effective_target_uses_frost_clamp() -> None:
+    """Frost protection should clamp the owned target upward."""
     assert resolve_effective_target_temperature(
         19.0,
-        global_override=GlobalOverride(target_temperature=17.0),
         zone_frost_protection_min_temp=18.0,
         global_frost_protection_min_temp=7.0,
-    ) == 18.0
+    ) == 19.0
 
     assert resolve_effective_target_temperature(
         19.0,
-        global_override=None,
         zone_frost_protection_min_temp=None,
         global_frost_protection_min_temp=20.0,
     ) == 20.0
@@ -100,8 +96,7 @@ def test_switch_zone_demand_is_aggregated_from_local_groups() -> None:
     zone = ZoneConfig(
         name="Bedroom",
         control_type=ControlType.SWITCH,
-        target_source=TargetSourceType.INPUT_NUMBER,
-        target_entity_id="input_number.bedroom_target",
+        target_temperature=20.0,
         local_groups=[
             LocalControlGroup(
                 name="Radiator",
@@ -138,7 +133,7 @@ def test_switch_zone_demand_is_aggregated_from_local_groups() -> None:
 
 
 def test_local_control_group_evaluation_is_independently_testable() -> None:
-    """A local group should apply override, frost, and hysteresis on its own."""
+    """A local group should apply frost and hysteresis on its own."""
     group = LocalControlGroup(
         name="Radiator",
         control_type=ControlType.SWITCH,
@@ -154,14 +149,13 @@ def test_local_control_group_evaluation_is_independently_testable() -> None:
         available_actuator_entity_ids=["switch.radiator"],
         previous_demand=False,
         hysteresis=0.3,
-        global_override=GlobalOverride(target_temperature=17.0),
         zone_frost_protection_min_temp=18.0,
         global_frost_protection_min_temp=7.0,
     )
 
     assert evaluation.current_temperature == 17.6
     assert evaluation.target_temperature == 19.0
-    assert evaluation.effective_target_temperature == 18.0
+    assert evaluation.effective_target_temperature == 19.0
     assert evaluation.demand is True
     assert evaluation.available_actuator_entity_ids == ["switch.radiator"]
 
@@ -171,8 +165,7 @@ def test_climate_zone_without_any_valid_sensors_turns_demand_off() -> None:
     zone = ZoneConfig(
         name="Living Room",
         control_type=ControlType.CLIMATE,
-        target_source=TargetSourceType.CLIMATE,
-        target_entity_id="climate.living_room",
+        target_temperature=20.0,
         sensor_entity_ids=["sensor.a", "sensor.b"],
         aggregation_mode=AggregationMode.AVERAGE,
     )
@@ -198,8 +191,7 @@ def test_zone_demand_turns_off_when_no_actuators_are_available() -> None:
     zone = ZoneConfig(
         name="Bedroom",
         control_type=ControlType.SWITCH,
-        target_source=TargetSourceType.INPUT_NUMBER,
-        target_entity_id="input_number.bedroom_target",
+        target_temperature=20.0,
         local_groups=[
             LocalControlGroup(
                 name="Radiator",
@@ -231,8 +223,7 @@ def test_disabled_zone_stays_off() -> None:
     zone = ZoneConfig(
         name="Study",
         control_type=ControlType.CLIMATE,
-        target_source=TargetSourceType.CLIMATE,
-        target_entity_id="climate.study",
+        target_temperature=20.0,
         sensor_entity_ids=["sensor.study"],
         aggregation_mode=AggregationMode.AVERAGE,
         enabled=False,

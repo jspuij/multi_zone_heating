@@ -19,7 +19,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.components.number import ATTR_VALUE, SERVICE_SET_VALUE
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -34,14 +34,12 @@ from .control_logic import (
 from .models import (
     AggregationMode,
     ControlType,
-    GlobalOverride,
     IntegrationConfig,
     LocalControlGroup,
     NumberSemanticType,
     RelayDecision,
     RelayRuntimeState,
     RuntimeSnapshot,
-    TargetSourceType,
     ZoneConfig,
     ZoneEvaluation,
 )
@@ -68,11 +66,11 @@ def integration_config_from_dict(data: Mapping[str, Any]) -> IntegrationConfig:
 
 def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
     """Build a typed zone config from config-entry data."""
+    target_temperature = _as_float(data.get("target_temperature"))
     return ZoneConfig(
         name=str(data["name"]),
         control_type=ControlType(data["control_type"]),
-        target_source=TargetSourceType(data["target_source"]),
-        target_entity_id=str(data["target_entity_id"]),
+        target_temperature=target_temperature if target_temperature is not None else 20.0,
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
         climate_off_fallback_temperature=_as_float(
@@ -149,11 +147,14 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._last_zone_demands: dict[str, bool] = {}
         self._last_group_demands: dict[str, dict[str, bool]] = {}
         self._last_commanded_switch_states: dict[str, bool] = {}
+        self._last_observed_switch_states: dict[str, bool] = {}
         self._last_commanded_number_values: dict[str, float] = {}
+        self._last_observed_number_values: dict[str, float] = {}
         self._last_commanded_climate_targets: dict[str, float] = {}
+        self._last_observed_climate_targets: dict[str, float] = {}
         self._last_commanded_climate_hvac_modes: dict[str, HVACMode] = {}
+        self._last_observed_climate_hvac_modes: dict[str, HVACMode] = {}
         self._relay_runtime_state = RelayRuntimeState(is_on=False)
-        self._global_override: GlobalOverride | None = None
         self._global_force_off = False
 
     async def async_start(self) -> None:
@@ -181,9 +182,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._cancel_recheck()
 
     @callback
-    def _async_handle_relevant_state_change(self, event: Event[Any]) -> None:
+    def _async_handle_relevant_state_change(self, _event: Any) -> None:
         """Reevaluate the system when a relevant entity changes."""
-        self._clear_override_on_target_change(event)
         self.hass.async_create_task(self.async_request_refresh())
 
     async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
@@ -196,29 +196,53 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         self._persist_zone_enabled(zone_name, enabled)
         await self.async_refresh()
 
+    async def async_set_zone_target_temperature(
+        self,
+        zone_name: str,
+        target_temperature: float,
+    ) -> None:
+        """Persist and apply the owned target temperature for one zone."""
+        zone = self.get_zone_config(zone_name)
+        if zone is None:
+            return
+
+        target_temperature = self._clamp_zone_target_temperature(zone, target_temperature)
+        if math.isclose(zone.target_temperature, target_temperature, abs_tol=0.01):
+            return
+
+        zone.target_temperature = target_temperature
+        self._persist_zone_target_temperature(zone_name, target_temperature)
+        await self.async_refresh()
+
+    async def async_set_all_zone_target_temperatures(self, target_temperature: float) -> None:
+        """Fan one master target change out to every configured zone."""
+        changed_zone_temperatures: dict[str, float] = {}
+        for zone in self.config.zones:
+            clamped_target_temperature = self._clamp_zone_target_temperature(
+                zone,
+                target_temperature,
+            )
+            if math.isclose(
+                zone.target_temperature,
+                clamped_target_temperature,
+                abs_tol=0.01,
+            ):
+                continue
+            zone.target_temperature = clamped_target_temperature
+            changed_zone_temperatures[zone.name] = clamped_target_temperature
+
+        if not changed_zone_temperatures:
+            return
+
+        self._persist_zone_target_temperatures(changed_zone_temperatures)
+        await self.async_refresh()
+
     async def async_set_global_force_off(self, enabled: bool) -> None:
         """Enable or disable global force-off."""
         if self._global_force_off == enabled:
             return
 
         self._global_force_off = enabled
-        await self.async_refresh()
-
-    async def async_set_global_override(self, target_temperature: float) -> None:
-        """Set the system-wide override temperature."""
-        if self._global_override is None:
-            self._global_override = GlobalOverride(target_temperature=target_temperature)
-        else:
-            self._global_override.target_temperature = target_temperature
-            self._global_override.active = True
-        await self.async_refresh()
-
-    async def async_clear_global_override(self) -> None:
-        """Remove the system-wide override temperature."""
-        if self._global_override is None:
-            return
-
-        self._global_override.active = False
         await self.async_refresh()
 
     def get_zone_config(self, zone_name: str) -> ZoneConfig | None:
@@ -228,11 +252,20 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 return zone
         return None
 
+    def get_zone_evaluation(self, zone_name: str) -> ZoneEvaluation | None:
+        """Return the latest evaluation for one configured zone."""
+        if self.data is None:
+            return None
+
+        for evaluation in self.data.zone_evaluations:
+            if evaluation.name == zone_name:
+                return evaluation
+        return None
+
     async def _async_update_data(self) -> RuntimeSnapshot:
         """Build a snapshot, evaluate demand, and dispatch required commands."""
         now = self._utcnow()
         snapshot = self._build_runtime_snapshot()
-        snapshot.global_override = self._global_override
         snapshot.global_force_off = self._global_force_off
         flow_value = snapshot.flow_value
 
@@ -270,7 +303,6 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 previous_demand=self._last_zone_demands.get(zone.name, False),
                 previous_group_demands=self._last_group_demands.get(zone.name),
                 hysteresis=self.config.default_hysteresis,
-                global_override=self._global_override,
                 global_frost_protection_min_temp=self.config.frost_protection_min_temp,
             )
             zone_evaluations.append(evaluation)
@@ -335,9 +367,9 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         actuator_available_entity_ids: set[str] = set()
 
         for zone in self.config.zones:
-            snapshot.target_temperatures[zone.name] = self._read_target_temperature(zone)
-            if snapshot.target_temperatures[zone.name] is None:
-                unavailable_entity_ids.add(zone.target_entity_id)
+            snapshot.target_temperatures[zone.name] = self._read_owned_zone_target_temperature(
+                zone
+            )
 
             for sensor_entity_id in zone.sensor_entity_ids:
                 sensor_value = self._read_numeric_state(sensor_entity_id)
@@ -385,42 +417,73 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
-    def _clear_override_on_target_change(self, event: Event[Any]) -> None:
-        """Clear the global override when a zone target changes externally."""
-        if self._global_override is None or not self._global_override.active:
-            return
-
-        entity_id = event.data.get("entity_id")
-        if entity_id is None:
-            return
-
-        zone_target_entity_ids = {zone.target_entity_id for zone in self.config.zones}
-        if entity_id not in zone_target_entity_ids:
-            return
-
-        old_state = event.data.get("old_state")
-        new_state = event.data.get("new_state")
-        if old_state is None or new_state is None:
-            return
-
-        old_temperature = self._extract_target_temperature(entity_id, old_state)
-        new_temperature = self._extract_target_temperature(entity_id, new_state)
-        if old_temperature == new_temperature:
-            return
-
-        self._global_override.active = False
-
     def _persist_zone_enabled(self, zone_name: str, enabled: bool) -> None:
         """Persist the zone-enabled flag into the config entry data."""
         if self.config_entry is None:
             return
 
+        current_zones = self._config_entry_zone_payload()
         zones = []
-        for zone_data in self.config_entry.data.get("zones", []):
+        for zone_data in current_zones:
             updated_zone_data = dict(zone_data)
             if updated_zone_data.get("name") == zone_name:
                 updated_zone_data["enabled"] = enabled
             zones.append(updated_zone_data)
+
+        self._persist_config_entry_zones(zones)
+
+    def _persist_zone_target_temperature(
+        self,
+        zone_name: str,
+        target_temperature: float,
+    ) -> None:
+        """Persist the owned zone target temperature into the config entry data."""
+        if self.config_entry is None:
+            return
+
+        current_zones = self._config_entry_zone_payload()
+        zones = []
+        for zone_data in current_zones:
+            updated_zone_data = dict(zone_data)
+            if updated_zone_data.get("name") == zone_name:
+                updated_zone_data["target_temperature"] = target_temperature
+            zones.append(updated_zone_data)
+
+        self._persist_config_entry_zones(zones)
+
+    def _persist_zone_target_temperatures(
+        self,
+        target_temperatures: Mapping[str, float],
+    ) -> None:
+        """Persist a set of zone target updates into the config entry."""
+        if self.config_entry is None:
+            return
+
+        current_zones = self._config_entry_zone_payload()
+        zones = []
+        for zone_data in current_zones:
+            updated_zone_data = dict(zone_data)
+            zone_name = updated_zone_data.get("name")
+            if zone_name in target_temperatures:
+                updated_zone_data["target_temperature"] = target_temperatures[zone_name]
+            zones.append(updated_zone_data)
+
+        self._persist_config_entry_zones(zones)
+
+    def _persist_config_entry_zones(self, zones: list[dict[str, Any]]) -> None:
+        """Persist zones to whichever config-entry payload currently owns them."""
+        if self.config_entry is None:
+            return
+
+        if "zones" in self.config_entry.options:
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                options={
+                    **self.config_entry.options,
+                    "zones": zones,
+                },
+            )
+            return
 
         self.hass.config_entries.async_update_entry(
             self.config_entry,
@@ -430,11 +493,31 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             },
         )
 
-    def _extract_target_temperature(self, entity_id: str, state: Any) -> float | None:
-        """Read the comparable target value from a target entity state."""
-        if entity_id.split(".", 1)[0] == CLIMATE_DOMAIN:
-            return _as_float(state.attributes.get("temperature"))
-        return _as_float(state.state)
+    def _config_entry_zone_payload(self) -> list[dict[str, Any]]:
+        """Return the current zone payload, preferring options when they own it."""
+        if self.config_entry is None:
+            return []
+
+        zone_payload = self.config_entry.options.get("zones")
+        if isinstance(zone_payload, list):
+            return zone_payload
+        zone_payload = self.config_entry.data.get("zones")
+        if isinstance(zone_payload, list):
+            return zone_payload
+        return []
+
+    def _clamp_zone_target_temperature(
+        self,
+        zone: ZoneConfig,
+        target_temperature: float,
+    ) -> float:
+        """Clamp a zone target to the effective frost floor."""
+        minimums = [5.0]
+        if self.config.frost_protection_min_temp is not None:
+            minimums.append(self.config.frost_protection_min_temp)
+        if zone.frost_protection_min_temp is not None:
+            minimums.append(zone.frost_protection_min_temp)
+        return max(target_temperature, max(minimums))
 
     async def _async_dispatch_zone_commands(
         self,
@@ -480,6 +563,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         force_off: bool,
     ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
+        zone_master_active = zone.enabled and not force_off
+
         for entity_id in zone.climate_entity_ids:
             if not self._entity_is_available(entity_id):
                 continue
@@ -493,8 +578,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 self._clear_climate_hvac_mode_if_synced(entity_id, current_hvac_mode)
 
             hvac_modes = self._read_supported_hvac_modes(entity_id)
-            if evaluation.demand and not force_off:
-                if HVACMode.HEAT in hvac_modes and current_hvac_mode == HVACMode.OFF:
+            if zone_master_active:
+                if HVACMode.HEAT in hvac_modes and current_hvac_mode != HVACMode.HEAT:
                     await self._async_dispatch_climate_hvac_mode(entity_id, HVACMode.HEAT)
 
                 target_temperature = evaluation.effective_target_temperature
@@ -502,6 +587,16 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                     continue
 
                 current_target = _as_float(state.attributes.get("temperature"))
+                if current_target is not None:
+                    previous_target = self._remember_observed_climate_target(
+                        entity_id,
+                        current_target,
+                    )
+                    self._clear_climate_target_if_drifted(
+                        entity_id,
+                        current_target,
+                        previous_target,
+                    )
                 if current_target is not None and math.isclose(
                     current_target, target_temperature, abs_tol=0.01
                 ):
@@ -536,6 +631,16 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 continue
 
             current_target = _as_float(state.attributes.get("temperature"))
+            if current_target is not None:
+                previous_target = self._remember_observed_climate_target(
+                    entity_id,
+                    current_target,
+                )
+                self._clear_climate_target_if_drifted(
+                    entity_id,
+                    current_target,
+                    previous_target,
+                )
             if current_target is not None and math.isclose(
                 current_target, fallback_temperature, abs_tol=0.01
             ):
@@ -574,6 +679,9 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 continue
 
             current_value = self._read_numeric_state(entity_id)
+            if current_value is not None:
+                previous_value = self._remember_observed_number_value(entity_id, current_value)
+                self._clear_number_value_if_drifted(entity_id, current_value, previous_value)
             if current_value is not None and math.isclose(current_value, desired_value, abs_tol=0.01):
                 self._last_commanded_number_values.pop(entity_id, None)
                 continue
@@ -624,6 +732,9 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         current_state = self._read_toggle_state(entity_id)
+        if current_state is not None:
+            previous_state = self._remember_observed_switch_state(entity_id, current_state)
+            self._clear_toggle_state_if_drifted(entity_id, current_state, previous_state)
         if current_state is desired_on:
             self._last_commanded_switch_states.pop(entity_id, None)
             return
@@ -647,6 +758,16 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     ) -> None:
         """Set a climate entity HVAC mode only when required."""
         current_hvac_mode = self._read_climate_hvac_mode(entity_id)
+        if current_hvac_mode is not None:
+            previous_hvac_mode = self._remember_observed_climate_hvac_mode(
+                entity_id,
+                current_hvac_mode,
+            )
+            self._clear_climate_hvac_mode_if_drifted(
+                entity_id,
+                current_hvac_mode,
+                previous_hvac_mode,
+            )
         if current_hvac_mode == desired_hvac_mode:
             self._last_commanded_climate_hvac_modes.pop(entity_id, None)
             return
@@ -675,16 +796,109 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if self._last_commanded_climate_hvac_modes.get(entity_id) == current_hvac_mode:
             self._last_commanded_climate_hvac_modes.pop(entity_id, None)
 
-    def _read_target_temperature(self, zone: ZoneConfig) -> float | None:
-        """Read the configured zone target from its source entity."""
-        state = self.hass.states.get(zone.target_entity_id)
-        if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
-            return None
+    def _remember_observed_switch_state(
+        self,
+        entity_id: str,
+        current_state: bool,
+    ) -> bool | None:
+        """Store the latest observed toggle state and return the previous one."""
+        previous_state = self._last_observed_switch_states.get(entity_id)
+        self._last_observed_switch_states[entity_id] = current_state
+        return previous_state
 
-        if zone.target_source is TargetSourceType.CLIMATE:
-            return _as_float(state.attributes.get("temperature"))
+    def _clear_toggle_state_if_drifted(
+        self,
+        entity_id: str,
+        current_state: bool,
+        previous_state: bool | None,
+    ) -> None:
+        """Clear a pending toggle command once a different observed state appears."""
+        last_commanded = self._last_commanded_switch_states.get(entity_id)
+        if last_commanded is None or previous_state is None:
+            return
+        if current_state != previous_state and current_state != last_commanded:
+            self._last_commanded_switch_states.pop(entity_id, None)
 
-        return _as_float(state.state)
+    def _remember_observed_number_value(
+        self,
+        entity_id: str,
+        current_value: float,
+    ) -> float | None:
+        """Store the latest observed number value and return the previous one."""
+        previous_value = self._last_observed_number_values.get(entity_id)
+        self._last_observed_number_values[entity_id] = current_value
+        return previous_value
+
+    def _clear_number_value_if_drifted(
+        self,
+        entity_id: str,
+        current_value: float,
+        previous_value: float | None,
+    ) -> None:
+        """Clear a pending number command after the entity drifts externally."""
+        last_commanded = self._last_commanded_number_values.get(entity_id)
+        if last_commanded is None or previous_value is None:
+            return
+        if not math.isclose(current_value, previous_value, abs_tol=0.01) and not math.isclose(
+            current_value, last_commanded, abs_tol=0.01
+        ):
+            self._last_commanded_number_values.pop(entity_id, None)
+
+    def _remember_observed_climate_target(
+        self,
+        entity_id: str,
+        current_target: float,
+    ) -> float | None:
+        """Store the latest observed climate target and return the previous one."""
+        previous_target = self._last_observed_climate_targets.get(entity_id)
+        self._last_observed_climate_targets[entity_id] = current_target
+        return previous_target
+
+    def _clear_climate_target_if_drifted(
+        self,
+        entity_id: str,
+        current_target: float,
+        previous_target: float | None,
+    ) -> None:
+        """Clear a pending climate target command after external target drift."""
+        last_target = self._last_commanded_climate_targets.get(entity_id)
+        if last_target is None or previous_target is None:
+            return
+        if not math.isclose(current_target, previous_target, abs_tol=0.01) and not math.isclose(
+            current_target, last_target, abs_tol=0.01
+        ):
+            self._last_commanded_climate_targets.pop(entity_id, None)
+
+    def _remember_observed_climate_hvac_mode(
+        self,
+        entity_id: str,
+        current_hvac_mode: HVACMode,
+    ) -> HVACMode | None:
+        """Store the latest observed HVAC mode and return the previous one."""
+        previous_hvac_mode = self._last_observed_climate_hvac_modes.get(entity_id)
+        self._last_observed_climate_hvac_modes[entity_id] = current_hvac_mode
+        return previous_hvac_mode
+
+    def _clear_climate_hvac_mode_if_drifted(
+        self,
+        entity_id: str,
+        current_hvac_mode: HVACMode,
+        previous_hvac_mode: HVACMode | None,
+    ) -> None:
+        """Clear a pending HVAC-mode command once a different observed mode appears."""
+        last_hvac_mode = self._last_commanded_climate_hvac_modes.get(entity_id)
+        if last_hvac_mode is None or previous_hvac_mode is None:
+            return
+        if current_hvac_mode != previous_hvac_mode and current_hvac_mode != last_hvac_mode:
+            self._last_commanded_climate_hvac_modes.pop(entity_id, None)
+
+    def _read_owned_zone_target_temperature(self, zone: ZoneConfig) -> float | None:
+        """Read the integration-owned zone target.
+
+        Slave actuators are never treated as target sources. Their runtime state is
+        observed only for availability and command deduplication.
+        """
+        return zone.target_temperature
 
     def _read_numeric_state(self, entity_id: str | None) -> float | None:
         """Read a numeric state from Home Assistant."""
@@ -783,7 +997,6 @@ def _iter_relevant_entity_ids(config: IntegrationConfig) -> Iterable[str]:
         yield config.flow_sensor_entity_id
 
     for zone in config.zones:
-        yield zone.target_entity_id
         yield from zone.sensor_entity_ids
         yield from zone.climate_entity_ids
         for group in zone.local_groups:

@@ -12,7 +12,6 @@
       "number_values_required": "Number control groups need active and inactive values.",
       "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
       "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
-      "target_entity_domain_mismatch": "The target entity must match the selected target source type.",
       "zone_name_required": "Each zone needs a name.",
       "zone_requires_climate_entities": "Climate zones need at least one climate entity.",
       "zone_requires_sensors": "Climate zones need at least one temperature sensor."
@@ -41,9 +40,7 @@
           "control_type": "Control type",
           "enabled": "Enabled",
           "frost_protection_min_temp": "Zone frost minimum",
-          "name": "Zone name",
-          "target_entity_id": "Target entity",
-          "target_source": "Target source"
+          "name": "Zone name"
         }
       },
       "climate_zone": {
@@ -96,7 +93,6 @@
       "number_values_required": "Number control groups need active and inactive values.",
       "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
       "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
-      "target_entity_domain_mismatch": "The target entity must match the selected target source type.",
       "zone_name_required": "Each zone needs a name.",
       "zone_requires_climate_entities": "Climate zones need at least one climate entity.",
       "zone_requires_local_groups": "Switch and number zones need at least one local control group.",
@@ -146,9 +142,7 @@
           "control_type": "Control type",
           "enabled": "Enabled",
           "frost_protection_min_temp": "Zone frost minimum",
-          "name": "Zone name",
-          "target_entity_id": "Target entity",
-          "target_source": "Target source"
+          "name": "Zone name"
         }
       },
       "climate_zone": {

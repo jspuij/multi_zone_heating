@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from .models import (
     AggregationMode,
     FlowWarningDecision,
-    GlobalOverride,
     LocalControlGroup,
     LocalControlGroupEvaluation,
     RelayDecision,
@@ -67,16 +66,11 @@ def resolve_frost_protection_minimum(
 def resolve_effective_target_temperature(
     zone_target_temperature: float | None,
     *,
-    global_override: GlobalOverride | None = None,
     zone_frost_protection_min_temp: float | None = None,
     global_frost_protection_min_temp: float | None = None,
 ) -> float | None:
-    """Resolve override and frost rules into one effective target."""
-    base_target = zone_target_temperature
-    if global_override is not None and global_override.active:
-        base_target = global_override.target_temperature
-
-    if base_target is None:
+    """Resolve frost rules into one effective target."""
+    if zone_target_temperature is None:
         return None
 
     frost_minimum = resolve_frost_protection_minimum(
@@ -84,9 +78,9 @@ def resolve_effective_target_temperature(
         global_frost_protection_min_temp,
     )
     if frost_minimum is None:
-        return base_target
+        return zone_target_temperature
 
-    return max(base_target, frost_minimum)
+    return max(zone_target_temperature, frost_minimum)
 
 
 def evaluate_hysteresis_demand(
@@ -117,7 +111,6 @@ def evaluate_local_control_group(
     available_actuator_entity_ids: Collection[str] | None = None,
     previous_demand: bool,
     hysteresis: float,
-    global_override: GlobalOverride | None = None,
     zone_frost_protection_min_temp: float | None = None,
     global_frost_protection_min_temp: float | None = None,
 ) -> LocalControlGroupEvaluation:
@@ -135,7 +128,6 @@ def evaluate_local_control_group(
     )
     effective_target_temperature = resolve_effective_target_temperature(
         zone_target_temperature,
-        global_override=global_override,
         zone_frost_protection_min_temp=zone_frost_protection_min_temp,
         global_frost_protection_min_temp=global_frost_protection_min_temp,
     )
@@ -169,13 +161,11 @@ def evaluate_zone(
     previous_demand: bool,
     previous_group_demands: Mapping[str, bool] | None = None,
     hysteresis: float,
-    global_override: GlobalOverride | None = None,
     global_frost_protection_min_temp: float | None = None,
 ) -> ZoneEvaluation:
     """Evaluate the demand state for a zone."""
     effective_target_temperature = resolve_effective_target_temperature(
         zone_target_temperature,
-        global_override=global_override,
         zone_frost_protection_min_temp=zone.frost_protection_min_temp,
         global_frost_protection_min_temp=global_frost_protection_min_temp,
     )
@@ -200,7 +190,6 @@ def evaluate_zone(
                 available_actuator_entity_ids=available_actuator_entity_ids,
                 previous_demand=group_demands.get(group.name, False),
                 hysteresis=hysteresis,
-                global_override=global_override,
                 zone_frost_protection_min_temp=zone.frost_protection_min_temp,
                 global_frost_protection_min_temp=global_frost_protection_min_temp,
             )

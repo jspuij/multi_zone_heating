@@ -2,7 +2,7 @@
 
 `multi_zone_heating` is a custom Home Assistant integration for coordinating multiple heating zones behind a shared main relay.
 
-Version `0.2.0` is the current release. It supports UI-based setup, climate- and actuator-driven zones, a shared relay, optional flow diagnostics, and a small set of runtime control entities for overrides and operations.
+Version `0.2.0` is the current release. It supports UI-based setup, climate- and actuator-driven zones, a shared relay, optional flow diagnostics, and a small set of runtime control entities for master commands and operations.
 
 ## Current Capabilities
 
@@ -10,14 +10,14 @@ Version `0.2.0` is the current release. It supports UI-based setup, climate- and
 - Multiple zones with independent demand evaluation
 - A shared main relay that follows aggregate demand and may be backed by a `switch` or `input_boolean`
 - Zone control via `climate`, `switch`, or `number` actuators
-- Zone targets sourced from either a `climate` entity or a `number`/`input_number`
+- Integration-owned zone targets
 - Temperature aggregation using `average`, `minimum`, or `primary` sensor selection
 - Optional relay timing protections:
   - minimum relay on time
   - minimum relay off time
   - relay off delay
 - Optional flow monitoring with missing-flow warnings
-- System-wide override temperature and global force-off control
+- System climate target fan-out and global force-off control
 - Per-zone enable and disable control
 
 ## Documentation
@@ -42,14 +42,12 @@ Full setup and usage details are in the [installation and usage guide](docs/inst
 
 Once configured, the integration creates:
 
-- One system climate entity for global override control
+- One system climate entity for master target commands
 - One system demand binary sensor
 - One zone demand binary sensor per configured zone
 - One global force-off switch
 - One zone enabled switch per configured zone
 - One relay-state diagnostic sensor
-
-It also registers the `multi_zone_heating.clear_override` service.
 
 ## Development
 

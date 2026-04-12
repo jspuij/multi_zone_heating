@@ -9,11 +9,11 @@ The integration evaluates heat demand across multiple configured zones and coord
 In version `0.2.0`, it can:
 
 - read one or more temperature sensors per zone or local control group
-- read a target temperature from either a `climate` entity or a `number`/`input_number`
+- persist one owned target temperature per zone
 - drive one or more climate actuators for a climate-based zone
 - drive one or more switch actuators for a switch-based zone
 - drive one or more number actuators for a number-based zone
-- expose system-level control entities for override and force-off behavior
+- expose system-level control entities for master target fan-out and force-off behavior
 - expose diagnostics for demand, relay state, and missing-flow warnings
 
 ## Before You Start
@@ -27,7 +27,6 @@ You should already have:
 Optional but supported:
 
 - a flow sensor entity
-- target temperatures exposed through `climate`, `number`, or `input_number` entities
 
 ## Installation
 
@@ -93,7 +92,7 @@ During the first step, the integration asks for:
 
 ### Zone Types
 
-Each zone has a name, an enabled flag, a control type, a target source, and a target entity.
+Each zone has a name, an enabled flag, a control type, and an integration-owned target temperature.
 
 Supported zone control types in `0.2.0`:
 
@@ -101,12 +100,7 @@ Supported zone control types in `0.2.0`:
 - `switch`
 - `number`
 
-Supported target sources in `0.2.0`:
-
-- `climate`
-- `input_number`
-
-Even when the target source is called `input_number` in the UI, the integration accepts both `input_number.*` and `number.*` entities for that path.
+New zones start at `20.0` degrees Celsius. If the global or zone frost minimum is higher than `20.0`, that higher value becomes the initial zone target instead.
 
 ### Temperature Aggregation
 
@@ -134,10 +128,11 @@ You will configure:
 
 Behavior:
 
-- when the zone demands heat, the integration pushes the effective target temperature to the configured climate entities
-- if the climate entity supports `heat`, it is switched from `off` to `heat` when demand starts
-- when demand stops, the integration turns the climate entity `off` if supported
-- if `off` is not supported, it can instead write the configured fallback temperature
+- while the zone is enabled, the integration pushes the effective target temperature to the configured climate entities
+- slave climate entities follow the virtual zone master for `heat` or `off`
+- when demand stops, the zone becomes idle but slave climates do not switch `off` just because demand cleared
+- when the zone is disabled, or global force-off is active, the integration turns the climate entity `off` if supported
+- if `off` is not supported, it can instead write the configured fallback temperature when the zone is disabled or globally forced off
 
 ### Switch Zone
 
@@ -196,17 +191,22 @@ After setup, the integration creates several runtime entities.
 
 ### Climate
 
+- `climate.<entry>_<zone>`
+  - exposed as the virtual climate entity for one zone
+  - setting its target temperature updates the integration-owned zone target
+  - setting HVAC mode to `off` disables that zone
+  - setting HVAC mode to `heat` re-enables that zone
 - `climate.<entry>_system`
   - exposed as the system climate entity
-  - setting its target temperature creates a system-wide override
+  - setting its target temperature fans the same setpoint out to every zone climate
   - setting HVAC mode to `off` activates global force-off
   - setting HVAC mode to `heat` clears global force-off
+  - if zone targets differ, its displayed `target_temperature` is empty instead of becoming a separate source of truth
 
 Attributes include:
 
-- `override_active`
-- `override_target_temperature`
 - `zones_calling_for_heat`
+- `zone_target_temperatures`
 - `global_force_off`
 
 ### Binary Sensors
@@ -245,29 +245,15 @@ Diagnostic attributes include:
 - `flow_value`
 - `zones_calling_for_heat`
 
-## Services
-
-The integration registers this service:
-
-- `multi_zone_heating.clear_override`
-  - clears the active global override target temperature for all loaded integration entries
-
-Example service call:
-
-```yaml
-service: multi_zone_heating.clear_override
-data: {}
-```
-
 ## Day-To-Day Usage
 
 Typical runtime usage is:
 
-1. Leave each zone target entity at its normal room target.
+1. Leave each zone target at its normal room target.
 2. Let the integration decide which zones currently demand heat.
-3. Use the system climate entity only when you want a temporary whole-system override.
+3. Use the system climate entity when you want to push one setpoint to every zone at once.
 4. Use the global force-off switch when you want the whole system disabled without reconfiguring zones.
-5. Disable individual zones with their zone-enabled switches when needed.
+5. Disable individual zones with their zone climate HVAC mode or the mirrored zone-enabled switch when needed.
 
 ## Example Scenarios
 
@@ -275,14 +261,14 @@ Typical runtime usage is:
 
 - Each room has one or more temperature sensors.
 - Each room has one or more climate TRV entities.
-- Each room target comes from a climate entity.
-- The integration writes effective target temperatures to the TRVs and runs the shared boiler relay when any room demands heat.
+- Each room target is owned by the integration.
+- The integration writes effective target temperatures to the TRVs, keeps them aligned to the virtual zone master state, and runs the shared boiler relay when any room demands heat.
 
 ### Example 2: Switch-Driven Zone Valves
 
 - Each zone has temperature sensors.
 - Each zone uses one or more switch-controlled valves.
-- Zone targets come from `input_number` helpers.
+- Zone targets are owned by the integration and shared across local groups.
 - The integration opens the right valves and enables the main relay only when needed.
 
 ### Example 3: Number-Driven Actuators
@@ -297,7 +283,7 @@ Version `0.2.0` is usable, but it is still an early release. Current limits to d
 
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
-- target-source options are limited to `climate` and `input_number`
+- zone targets are stored by the integration instead of external helper or climate entities
 - dedicated `number` platform entities are not exposed yet, even though number actuators are supported
 - documentation screenshots are placeholders for now
 
@@ -312,7 +298,7 @@ Version `0.2.0` is usable, but it is still an early release. Current limits to d
 ### A Zone Never Calls For Heat
 
 - verify the zone is enabled
-- verify the target entity has a valid numeric target
+- verify the zone has a valid target temperature
 - verify the configured sensor entities have usable states
 - if using `primary` aggregation, confirm the chosen primary sensor is one of the configured sensors
 
@@ -340,4 +326,4 @@ Check the relay-state sensor attributes, especially `hold_reason`.
 - switch-group setup
 - number-group setup
 - created entities in the device page
-- example dashboard card showing override and diagnostics
+- example dashboard card showing system fan-out and diagnostics
