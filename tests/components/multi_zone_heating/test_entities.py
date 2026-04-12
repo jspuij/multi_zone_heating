@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
 from homeassistant.core import ServiceCall
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.multi_zone_heating.const import DOMAIN
+from custom_components.multi_zone_heating.runtime_state import RuntimeStateStore
 
 
 def _build_config_entry() -> MockConfigEntry:
@@ -69,6 +72,11 @@ async def _setup_loaded_entry(hass) -> tuple[MockConfigEntry, list[tuple[str, di
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry, calls
+
+
+async def _load_runtime_zone_state(hass, entry: MockConfigEntry) -> dict[str, dict[str, object]]:
+    """Load the persisted runtime zone state for one config entry."""
+    return await RuntimeStateStore(hass, entry.entry_id).async_load()
 
 
 async def test_system_climate_fans_target_out_to_owned_zone_targets(hass) -> None:
@@ -190,7 +198,14 @@ async def test_zone_climate_exposes_and_persists_owned_target(hass) -> None:
     climate_state = hass.states.get("climate.multi_zone_heating_living_room")
     assert climate_state is not None
     assert climate_state.attributes["temperature"] == 21.5
-    assert entry.data["zones"][0]["target_temperature"] == 21.5
+    assert entry.data["zones"][0]["target_temperature"] == 20.0
+    assert entry.runtime_data.config.zones[0].target_temperature == 21.5
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 21.5,
+            "enabled": True,
+        }
+    }
 
 
 async def test_zone_climate_hvac_mode_toggles_zone_enabled(hass) -> None:
@@ -211,7 +226,14 @@ async def test_zone_climate_hvac_mode_toggles_zone_enabled(hass) -> None:
     climate_state = hass.states.get("climate.multi_zone_heating_living_room")
     assert climate_state is not None
     assert climate_state.state == "off"
-    assert entry.data["zones"][0]["enabled"] is False
+    assert entry.data["zones"][0]["enabled"] is True
+    assert entry.runtime_data.config.zones[0].enabled is False
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 20.0,
+            "enabled": False,
+        }
+    }
 
     await hass.services.async_call(
         "climate",
@@ -228,6 +250,13 @@ async def test_zone_climate_hvac_mode_toggles_zone_enabled(hass) -> None:
     assert climate_state is not None
     assert climate_state.state == "heat"
     assert entry.data["zones"][0]["enabled"] is True
+    assert entry.runtime_data.config.zones[0].enabled is True
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 20.0,
+            "enabled": True,
+        }
+    }
 
 
 async def test_zone_enabled_switch_and_zone_climate_stay_synchronized(hass) -> None:
@@ -283,7 +312,13 @@ async def test_zone_climate_target_restores_after_entry_reload(hass) -> None:
     )
     await hass.async_block_till_done()
 
-    assert entry.data["zones"][0]["target_temperature"] == 21.5
+    assert entry.data["zones"][0]["target_temperature"] == 20.0
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 21.5,
+            "enabled": True,
+        }
+    }
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -292,6 +327,43 @@ async def test_zone_climate_target_restores_after_entry_reload(hass) -> None:
 
     climate_state = hass.states.get("climate.multi_zone_heating_living_room")
     assert climate_state is not None
+    assert climate_state.attributes["temperature"] == 21.5
+
+
+async def test_runtime_climate_writes_do_not_reload_or_unload_entities(hass) -> None:
+    """Runtime thermostat writes should keep the integration loaded and available."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        AsyncMock(return_value=True),
+    ) as mock_reload:
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+                "temperature": 21.5,
+            },
+            blocking=True,
+        )
+        await hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {
+                ATTR_ENTITY_ID: "climate.multi_zone_heating_living_room",
+                "hvac_mode": "off",
+            },
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
+    mock_reload.assert_not_awaited()
+
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.state == "off"
     assert climate_state.attributes["temperature"] == 21.5
 
 
@@ -358,8 +430,19 @@ async def test_system_climate_clamps_fanned_target_to_zone_frost_floor(hass) -> 
     assert entry.runtime_data.coordinator is not None
     await entry.runtime_data.coordinator.async_set_all_zone_target_temperatures(6.0)
 
-    assert entry.data["zones"][0]["target_temperature"] == 10.0
-    assert entry.data["zones"][1]["target_temperature"] == 6.0
+    assert entry.data["zones"][0]["target_temperature"] == 20.0
+    assert entry.data["zones"][1]["target_temperature"] == 19.0
+    assert [zone.target_temperature for zone in entry.runtime_data.config.zones] == [10.0, 6.0]
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 10.0,
+            "enabled": True,
+        },
+        "Bedroom": {
+            "target_temperature": 6.0,
+            "enabled": True,
+        },
+    }
 
 
 async def test_zone_climate_current_temperature_uses_average_aggregation(hass) -> None:
@@ -501,7 +584,14 @@ async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -
     assert zone_state.state == STATE_OFF
     assert system_state is not None
     assert system_state.state == STATE_OFF
-    assert entry.data["zones"][0]["enabled"] is False
+    assert entry.data["zones"][0]["enabled"] is True
+    assert entry.runtime_data.config.zones[0].enabled is False
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 20.0,
+            "enabled": False,
+        }
+    }
 
     await hass.services.async_call(
         "switch",
@@ -525,8 +615,8 @@ async def test_zone_enable_and_global_force_off_switches_control_runtime(hass) -
     assert zone_climate_state.attributes["hvac_action"] == "off"
 
 
-async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
-    """Zone enable changes should update the config entry data."""
+async def test_zone_enable_toggle_persists_in_runtime_store(hass) -> None:
+    """Zone enable changes should persist without mutating the config entry."""
     entry, _ = await _setup_loaded_entry(hass)
 
     await hass.services.async_call(
@@ -536,7 +626,14 @@ async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert entry.data["zones"][0]["enabled"] is False
+    assert entry.data["zones"][0]["enabled"] is True
+    assert entry.runtime_data.config.zones[0].enabled is False
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 20.0,
+            "enabled": False,
+        }
+    }
 
     await hass.services.async_call(
         "switch",
@@ -546,6 +643,13 @@ async def test_zone_enable_toggle_persists_in_config_entry(hass) -> None:
     )
     await hass.async_block_till_done()
     assert entry.data["zones"][0]["enabled"] is True
+    assert entry.runtime_data.config.zones[0].enabled is True
+    assert await _load_runtime_zone_state(hass, entry) == {
+        "Living Room": {
+            "target_temperature": 20.0,
+            "enabled": True,
+        }
+    }
 
 
 async def test_zone_climate_keeps_heat_mode_but_reports_off_action_during_global_force_off(

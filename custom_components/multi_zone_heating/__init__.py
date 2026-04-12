@@ -15,8 +15,9 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
-from .models import RuntimeData
 from .coordinator import MultiZoneHeatingCoordinator, integration_config_from_dict
+from .models import RuntimeData
+from .runtime_state import RuntimeStateStore
 from .target_temperature import initial_zone_target_temperature
 
 if TYPE_CHECKING:
@@ -73,7 +74,14 @@ async def async_setup_entry(
     merged_config = deepcopy(dict(entry.data))
     merged_config.update(deepcopy(dict(entry.options)))
     config = integration_config_from_dict(merged_config)
-    coordinator = MultiZoneHeatingCoordinator(hass, config, config_entry=entry)
+    runtime_state_store = RuntimeStateStore(hass, entry.entry_id)
+    await runtime_state_store.async_apply_to_config(config)
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        config,
+        config_entry=entry,
+        runtime_state_store=runtime_state_store,
+    )
     entry.runtime_data = RuntimeData(
         config_entry_id=entry.entry_id,
         title=entry.title,
@@ -99,6 +107,8 @@ async def async_unload_entry(
             await coordinator.async_stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unloaded
+
+
 async def _async_update_listener(
     hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,
@@ -179,6 +189,8 @@ def _migrate_zone_data(
     migrated_zone.pop("target_source", None)
     migrated_zone.pop("target_entity_id", None)
     return migrated_zone
+
+
 def _read_legacy_target_temperature(
     hass: HomeAssistant,
     target_entity_id: object | None,

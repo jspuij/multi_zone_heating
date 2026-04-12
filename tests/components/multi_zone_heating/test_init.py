@@ -26,6 +26,7 @@ from custom_components.multi_zone_heating.models import (
     ControlType,
     RuntimeData,
 )
+from custom_components.multi_zone_heating.runtime_state import RuntimeStateStore
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
@@ -179,8 +180,8 @@ async def test_setup_rejects_legacy_zone_migration_without_usable_target(hass) -
     assert config_entry.data[CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == 20.0
 
 
-async def test_zone_target_updates_persist_when_options_own_zones(hass) -> None:
-    """Runtime target changes should update options when options replace zone config."""
+async def test_zone_target_updates_persist_in_runtime_store_when_options_own_zones(hass) -> None:
+    """Runtime target changes should persist outside options-owned zone config."""
     config_entry = MockConfigEntry(
         domain=DOMAIN,
         title="Multi-Zone Heating",
@@ -225,7 +226,61 @@ async def test_zone_target_updates_persist_when_options_own_zones(hass) -> None:
     )
     await hass.async_block_till_done()
 
-    assert config_entry.options[CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == 21.5
+    assert config_entry.options[CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == 20.0
+    assert config_entry.runtime_data.config.zones[0].target_temperature == 21.5
+    assert await RuntimeStateStore(hass, config_entry.entry_id).async_load() == {
+        "Living Room": {
+            CONF_TARGET_TEMPERATURE: 21.5,
+            CONF_ENABLED: True,
+        }
+    }
+
+
+async def test_setup_restores_runtime_zone_state_before_entities_load(hass) -> None:
+    """Setup should overlay persisted runtime-owned zone state onto runtime config."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Multi-Zone Heating",
+        data={
+            CONF_ZONES: [
+                {
+                    CONF_NAME: "Living Room",
+                    CONF_ENABLED: True,
+                    CONF_CONTROL_TYPE: ControlType.CLIMATE,
+                    CONF_TARGET_TEMPERATURE: 20.0,
+                    CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
+                    CONF_CLIMATE_ENTITY_IDS: [],
+                    CONF_LOCAL_GROUPS: [],
+                    CONF_AGGREGATION_MODE: AggregationMode.AVERAGE,
+                    CONF_PRIMARY_SENSOR_ENTITY_ID: None,
+                }
+            ],
+        },
+        version=2,
+        state=ConfigEntryState.NOT_LOADED,
+    )
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.boiler", "off")
+    config_entry.add_to_hass(hass)
+
+    await RuntimeStateStore(hass, config_entry.entry_id).async_save_zone_state_map(
+        {
+            "Living Room": {
+                CONF_TARGET_TEMPERATURE: 21.5,
+                CONF_ENABLED: False,
+            }
+        }
+    )
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert config_entry.runtime_data.config.zones[0].target_temperature == 21.5
+    assert config_entry.runtime_data.config.zones[0].enabled is False
+    climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert climate_state is not None
+    assert climate_state.attributes["temperature"] == 21.5
+    assert climate_state.state == "off"
 
 
 async def test_setup_migrates_legacy_climate_target_entities(hass) -> None:

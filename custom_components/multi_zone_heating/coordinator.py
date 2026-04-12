@@ -43,6 +43,7 @@ from .models import (
     ZoneConfig,
     ZoneEvaluation,
 )
+from .runtime_state import RuntimeStateStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,6 +126,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         config: IntegrationConfig,
         *,
         config_entry: ConfigEntry | None = None,
+        runtime_state_store: RuntimeStateStore | None = None,
     ) -> None:
         """Initialize the coordinator."""
         try:
@@ -142,6 +144,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             )
             self.config_entry = config_entry
         self.config = config
+        self._runtime_state_store = runtime_state_store
         self._unsub_state_changes: CALLBACK_TYPE | None = None
         self._unsub_recheck: CALLBACK_TYPE | None = None
         self._last_zone_demands: dict[str, bool] = {}
@@ -193,7 +196,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         zone.enabled = enabled
-        self._persist_zone_enabled(zone_name, enabled)
+        await self._async_persist_runtime_state()
         await self.async_refresh()
 
     async def async_set_zone_target_temperature(
@@ -211,7 +214,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
             return
 
         zone.target_temperature = target_temperature
-        self._persist_zone_target_temperature(zone_name, target_temperature)
+        await self._async_persist_runtime_state()
         await self.async_refresh()
 
     async def async_set_all_zone_target_temperatures(self, target_temperature: float) -> None:
@@ -234,7 +237,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if not changed_zone_temperatures:
             return
 
-        self._persist_zone_target_temperatures(changed_zone_temperatures)
+        await self._async_persist_runtime_state()
         await self.async_refresh()
 
     async def async_set_global_force_off(self, enabled: bool) -> None:
@@ -417,94 +420,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
-    def _persist_zone_enabled(self, zone_name: str, enabled: bool) -> None:
-        """Persist the zone-enabled flag into the config entry data."""
-        if self.config_entry is None:
+    async def _async_persist_runtime_state(self) -> None:
+        """Persist runtime-owned zone state without reloading the config entry."""
+        if self._runtime_state_store is None:
             return
 
-        current_zones = self._config_entry_zone_payload()
-        zones = []
-        for zone_data in current_zones:
-            updated_zone_data = dict(zone_data)
-            if updated_zone_data.get("name") == zone_name:
-                updated_zone_data["enabled"] = enabled
-            zones.append(updated_zone_data)
-
-        self._persist_config_entry_zones(zones)
-
-    def _persist_zone_target_temperature(
-        self,
-        zone_name: str,
-        target_temperature: float,
-    ) -> None:
-        """Persist the owned zone target temperature into the config entry data."""
-        if self.config_entry is None:
-            return
-
-        current_zones = self._config_entry_zone_payload()
-        zones = []
-        for zone_data in current_zones:
-            updated_zone_data = dict(zone_data)
-            if updated_zone_data.get("name") == zone_name:
-                updated_zone_data["target_temperature"] = target_temperature
-            zones.append(updated_zone_data)
-
-        self._persist_config_entry_zones(zones)
-
-    def _persist_zone_target_temperatures(
-        self,
-        target_temperatures: Mapping[str, float],
-    ) -> None:
-        """Persist a set of zone target updates into the config entry."""
-        if self.config_entry is None:
-            return
-
-        current_zones = self._config_entry_zone_payload()
-        zones = []
-        for zone_data in current_zones:
-            updated_zone_data = dict(zone_data)
-            zone_name = updated_zone_data.get("name")
-            if zone_name in target_temperatures:
-                updated_zone_data["target_temperature"] = target_temperatures[zone_name]
-            zones.append(updated_zone_data)
-
-        self._persist_config_entry_zones(zones)
-
-    def _persist_config_entry_zones(self, zones: list[dict[str, Any]]) -> None:
-        """Persist zones to whichever config-entry payload currently owns them."""
-        if self.config_entry is None:
-            return
-
-        if "zones" in self.config_entry.options:
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                options={
-                    **self.config_entry.options,
-                    "zones": zones,
-                },
-            )
-            return
-
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            data={
-                **self.config_entry.data,
-                "zones": zones,
-            },
-        )
-
-    def _config_entry_zone_payload(self) -> list[dict[str, Any]]:
-        """Return the current zone payload, preferring options when they own it."""
-        if self.config_entry is None:
-            return []
-
-        zone_payload = self.config_entry.options.get("zones")
-        if isinstance(zone_payload, list):
-            return zone_payload
-        zone_payload = self.config_entry.data.get("zones")
-        if isinstance(zone_payload, list):
-            return zone_payload
-        return []
+        await self._runtime_state_store.async_save_zones(self.config.zones)
 
     def _clamp_zone_target_temperature(
         self,
@@ -757,6 +678,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         desired_hvac_mode: HVACMode,
     ) -> None:
         """Set a climate entity HVAC mode only when required."""
+        previous_hvac_mode: HVACMode | None = None
         current_hvac_mode = self._read_climate_hvac_mode(entity_id)
         if current_hvac_mode is not None:
             previous_hvac_mode = self._remember_observed_climate_hvac_mode(
@@ -774,7 +696,8 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         last_commanded = self._last_commanded_climate_hvac_modes.get(entity_id)
         if last_commanded == desired_hvac_mode:
-            return
+            if previous_hvac_mode is None or current_hvac_mode != previous_hvac_mode:
+                return
 
         await self.hass.services.async_call(
             CLIMATE_DOMAIN,
