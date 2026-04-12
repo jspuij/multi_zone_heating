@@ -95,7 +95,7 @@ If no valid sensor remains, the zone climate reports no `current_temperature` an
 
 ### Zone Target Ownership
 
-Each zone target temperature is persisted in integration-owned state or config.
+Each zone target temperature is persisted in integration-owned runtime state, separate from structural config-entry data.
 
 Implications:
 
@@ -103,6 +103,27 @@ Implications:
 - A zone target is read from the zone virtual climate state only
 - Target changes made through the zone climate must survive restart
 - External Home Assistant entities may still automate the zone climate, but are not part of core zone config
+- Target writes must not trigger config-entry reloads
+
+### Reload Boundaries
+
+Structural configuration changes should reload the integration because they change entity topology, subscriptions, or coordinator wiring.
+
+Examples:
+
+- adding, removing, or renaming zones
+- changing zone control type
+- changing configured sensors, actuators, local groups, relay, or flow sensor bindings
+- changing global timing, flow, frost, or failsafe settings that are read during setup
+
+Runtime thermostat actions should not reload the integration.
+
+Examples:
+
+- setting a zone climate target temperature
+- setting a zone climate `hvac_mode` to enable or disable a zone
+- setting the system climate target and fanning it out to zones
+- toggling global force-off
 
 ### Zone Demand
 
@@ -393,6 +414,7 @@ Master / slave behavior:
 - The coordinator reads zone targets from zone climate state only
 - Downstream actuators never provide target input
 - Setting the system climate target may fan out to zone climates, but zone climates remain the only per-zone source of truth
+- These runtime writes must update state in place without unloading the integration
 
 Recommended attributes:
 

@@ -64,6 +64,25 @@ Recommended order:
 7. Add top-level climate behavior aligned with the new model
 8. Finish options flow, diagnostics polish, and tests
 
+## Runtime Persistence Fix Plan
+
+The current runtime bug shows that zone climate target and enable changes are being persisted through config-entry updates, which causes the integration to reload and briefly drop its entities. The fix should separate structural configuration from runtime-owned thermostat state.
+
+Recommended sequence:
+
+1. Define reload boundaries explicitly.
+   Structural edits made through the options flow should continue to reload the integration. Runtime climate actions such as zone target changes, zone enable or disable, and system target fan-out must not trigger config-entry reloads.
+2. Introduce a runtime-owned persistence layer.
+   Move per-zone target temperature and zone enabled state out of config-entry update paths. Persist them in integration-managed runtime storage that survives restart without requiring entry reload.
+3. Restore runtime-owned state during startup.
+   On setup, load persisted zone targets and enabled flags before entities are added so the virtual climates come up with stable state immediately.
+4. Keep config-entry payloads structural only.
+   The config entry should continue to describe zone topology, entity bindings, timing rules, frost settings, and other wiring data, but not mutable thermostat operating state.
+5. Narrow reload behavior to structural edits.
+   Update the config-entry listener and related flows so that reloads still happen after zone topology or global setting edits, but not after runtime thermostat commands.
+6. Add regression coverage around entity availability.
+   Tests should verify that changing a zone target, zone HVAC mode, or system target does not unload climate entities or surface `Unavailable`, while structural options edits still reload as expected.
+
 ## Milestones
 
 ### Milestone 1: Schema And Migration
@@ -220,7 +239,16 @@ Related stories:
 - Use Home Assistant config flow and options flow only
 - Do not write YAML configuration files
 - Persist user configuration in config entries
-- Persist zone-owned target temperatures in integration-managed state or config
+- Persist zone-owned target temperatures and zone enabled state in integration-managed runtime storage
+- Keep config entries limited to structural configuration that defines setup, subscriptions, and entity topology
+
+### Reload Boundaries
+
+- Reload the entry when structural configuration changes
+- Structural changes include zone additions or removals, zone renames, control-type changes, sensor or actuator membership changes, local-group edits, relay or flow entity changes, and global timing or safety settings changed through the options flow
+- Do not reload the entry for runtime thermostat actions
+- Runtime actions include zone target changes, zone HVAC mode changes that map to enable or disable, system climate target fan-out, and global force-off toggles
+- Runtime actions must update entity state in place and persist without unloading platforms
 
 ### Zone Climate Ownership
 
@@ -229,6 +257,7 @@ Related stories:
 - External climate entities, if configured, are slave actuators only
 - The coordinator must not read target temperature from slave entities
 - The zone climate `hvac_mode` is the canonical enabled or disabled state for the zone
+- Zone target and enabled-state writes must not go through config-entry reload paths
 
 ### Zone Climate Temperature Presentation
 

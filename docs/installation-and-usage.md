@@ -224,7 +224,7 @@ Attributes include:
 - `switch.<entry>_<zone>_enabled`
   - enables or disables one configured zone
 
-Zone enabled state is persisted back into the config entry, so it survives reloads.
+Zone target and enabled state are runtime-owned integration state. They should survive restart, but changing them should not reload the integration or make the virtual climate briefly unavailable.
 
 ### Sensor
 
@@ -284,6 +284,7 @@ Version `0.3.0` is usable, but it is still an early release. Current limits to d
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
 - zone targets are stored by the integration instead of external helper or climate entities
+- runtime thermostat actions currently still trigger a full integration reload; this should be removed so virtual climates stay available during adjustments
 - dedicated `number` platform entities are not exposed yet, even though number actuators are supported
 - documentation screenshots are placeholders for now
 
