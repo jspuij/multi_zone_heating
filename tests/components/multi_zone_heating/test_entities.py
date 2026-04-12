@@ -39,7 +39,7 @@ def _build_config_entry() -> MockConfigEntry:
                 }
             ],
         },
-        version=1,
+        version=2,
     )
 
 
