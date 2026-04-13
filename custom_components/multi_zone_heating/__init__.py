@@ -14,6 +14,7 @@ from .const import (
     CONFIG_ENTRY_VERSION,
     DOMAIN,
     PLATFORMS,
+    RELOAD_BOUNDARY_TERMINOLOGY,
 )
 from .coordinator import MultiZoneHeatingCoordinator, integration_config_from_dict
 from .models import RuntimeData
@@ -113,7 +114,12 @@ async def _async_update_listener(
     hass: HomeAssistant,
     entry: MultiZoneHeatingConfigEntry,
 ) -> None:
-    """Reload the entry when options change so runtime state stays in sync."""
+    """Reload the entry when structural options change."""
+    _LOGGER.debug(
+        "Reloading config entry %s after a structural options update (%s)",
+        entry.entry_id,
+        RELOAD_BOUNDARY_TERMINOLOGY,
+    )
     await hass.config_entries.async_reload(entry.entry_id)
 
 
