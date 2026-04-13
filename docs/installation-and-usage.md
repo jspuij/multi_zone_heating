@@ -284,9 +284,30 @@ Version `0.3.0` is usable, but it is still an early release. Current limits to d
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
 - zone targets are stored by the integration instead of external helper or climate entities
-- runtime thermostat actions currently still trigger a full integration reload; this should be removed so virtual climates stay available during adjustments
+- structural configuration edits still reload the integration, but runtime thermostat actions update in place without unloading entities
 - dedicated `number` platform entities are not exposed yet, even though number actuators are supported
 - documentation screenshots are placeholders for now
+
+### Reload Boundaries
+
+The integration uses a runtime-versus-structural boundary:
+
+- structural options edits reload the integration because they change topology, subscriptions, or coordinator wiring
+- runtime thermostat actions update in place and persist without reloading the config entry
+
+Structural examples:
+
+- adding, removing, or renaming zones
+- changing zone control type
+- changing configured sensors, actuators, local groups, relay, or flow sensor bindings
+- changing global timing, flow, frost, or failsafe settings through the options flow
+
+Runtime examples:
+
+- setting a zone climate target temperature
+- setting a zone climate `hvac_mode` to enable or disable a zone
+- setting the system climate target and fanning it out to zones
+- toggling global force-off
 
 ## Troubleshooting
 

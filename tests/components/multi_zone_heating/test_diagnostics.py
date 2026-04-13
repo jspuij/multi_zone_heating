@@ -78,6 +78,15 @@ async def test_config_entry_diagnostics_include_config_and_runtime_state(hass) -
     assert diagnostics["config_entry"]["version"] == 2
     assert diagnostics["config"]["main_relay_entity_id"] == "switch.boiler"
     assert diagnostics["config"]["zones"][0]["control_type"] == "switch"
+    assert diagnostics["reload_boundaries"]["terminology"] == "runtime-versus-structural"
+    assert (
+        "changing global timing, flow, frost, or failsafe settings through the options flow"
+        in diagnostics["reload_boundaries"]["structural_changes_reload"]
+    )
+    assert (
+        "setting the system climate target and fanning it out to zones"
+        in diagnostics["reload_boundaries"]["runtime_actions_do_not_reload"]
+    )
     assert diagnostics["runtime"]["loaded"] is True
     assert diagnostics["runtime"]["global_force_off"] is False
     assert diagnostics["runtime"]["system_climate"]["hvac_mode"] == "heat"

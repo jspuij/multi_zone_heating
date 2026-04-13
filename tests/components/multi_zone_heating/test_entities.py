@@ -334,11 +334,18 @@ async def test_runtime_climate_writes_do_not_reload_or_unload_entities(hass) -> 
     """Runtime thermostat writes should keep the integration loaded and available."""
     entry, _ = await _setup_loaded_entry(hass)
 
-    with patch.object(
-        hass.config_entries,
-        "async_reload",
-        AsyncMock(return_value=True),
-    ) as mock_reload:
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_reload",
+            AsyncMock(return_value=True),
+        ) as mock_reload,
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(return_value=True),
+        ) as mock_unload_platforms,
+    ):
         await hass.services.async_call(
             "climate",
             "set_temperature",
@@ -360,11 +367,53 @@ async def test_runtime_climate_writes_do_not_reload_or_unload_entities(hass) -> 
         await hass.async_block_till_done()
 
     mock_reload.assert_not_awaited()
+    mock_unload_platforms.assert_not_awaited()
 
     climate_state = hass.states.get("climate.multi_zone_heating_living_room")
     assert climate_state is not None
     assert climate_state.state == "off"
     assert climate_state.attributes["temperature"] == 21.5
+
+
+async def test_system_target_fan_out_does_not_reload_or_unload_entities(hass) -> None:
+    """System target fan-out should stay on the runtime path."""
+    entry, _ = await _setup_loaded_entry(hass)
+
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_reload",
+            AsyncMock(return_value=True),
+        ) as mock_reload,
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(return_value=True),
+        ) as mock_unload_platforms,
+    ):
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                ATTR_ENTITY_ID: "climate.multi_zone_heating_system",
+                "temperature": 21.5,
+            },
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
+    mock_reload.assert_not_awaited()
+    mock_unload_platforms.assert_not_awaited()
+
+    system_state = hass.states.get("climate.multi_zone_heating_system")
+    assert system_state is not None
+    assert system_state.state == "heat"
+    assert system_state.attributes["temperature"] == 21.5
+
+    zone_state = hass.states.get("climate.multi_zone_heating_living_room")
+    assert zone_state is not None
+    assert zone_state.state == "heat"
+    assert zone_state.attributes["temperature"] == 21.5
 
 
 async def test_system_climate_clamps_fanned_target_to_zone_frost_floor(hass) -> None:

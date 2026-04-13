@@ -44,6 +44,7 @@ from .models import (
     ZoneEvaluation,
 )
 from .runtime_state import RuntimeStateStore
+from .const import RELOAD_BOUNDARY_TERMINOLOGY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -195,6 +196,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if zone is None or zone.enabled == enabled:
             return
 
+        _LOGGER.debug(
+            "Applying runtime thermostat action without reload (%s): zone=%s enabled=%s",
+            RELOAD_BOUNDARY_TERMINOLOGY,
+            zone_name,
+            enabled,
+        )
         zone.enabled = enabled
         await self._async_persist_runtime_state()
         await self.async_refresh()
@@ -213,6 +220,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if math.isclose(zone.target_temperature, target_temperature, abs_tol=0.01):
             return
 
+        _LOGGER.debug(
+            "Applying runtime thermostat action without reload (%s): zone=%s target_temperature=%s",
+            RELOAD_BOUNDARY_TERMINOLOGY,
+            zone_name,
+            target_temperature,
+        )
         zone.target_temperature = target_temperature
         await self._async_persist_runtime_state()
         await self.async_refresh()
@@ -237,6 +250,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if not changed_zone_temperatures:
             return
 
+        _LOGGER.debug(
+            "Applying runtime thermostat action without reload (%s): system target fan-out=%s",
+            RELOAD_BOUNDARY_TERMINOLOGY,
+            changed_zone_temperatures,
+        )
         await self._async_persist_runtime_state()
         await self.async_refresh()
 
@@ -245,6 +263,11 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         if self._global_force_off == enabled:
             return
 
+        _LOGGER.debug(
+            "Applying runtime thermostat action without reload (%s): global_force_off=%s",
+            RELOAD_BOUNDARY_TERMINOLOGY,
+            enabled,
+        )
         self._global_force_off = enabled
         await self.async_refresh()
 

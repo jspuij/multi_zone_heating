@@ -87,8 +87,8 @@ async def test_setup_entry_prefers_options_over_data(hass) -> None:
     assert [zone.name for zone in config_entry.runtime_data.config.zones] == ["Living Room"]
 
 
-async def test_options_update_triggers_entry_reload(hass, config_entry) -> None:
-    """Updating entry options should reload the integration immediately."""
+async def test_structural_options_update_triggers_entry_reload(hass, config_entry) -> None:
+    """Structural options updates should stay on the reload path."""
     config_entry.add_to_hass(hass)
 
     with patch.object(

@@ -10,6 +10,11 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from . import MultiZoneHeatingConfigEntry
+from .const import (
+    RELOAD_BOUNDARY_TERMINOLOGY,
+    RUNTIME_NO_RELOAD_EXAMPLES,
+    STRUCTURAL_RELOAD_EXAMPLES,
+)
 from .models import ZoneConfig, ZoneEvaluation
 
 
@@ -31,6 +36,11 @@ async def async_get_config_entry_diagnostics(
             "minor_version": entry.minor_version,
         },
         "config": _serialize_value(runtime_data.config if runtime_data is not None else dict(entry.data)),
+        "reload_boundaries": {
+            "terminology": RELOAD_BOUNDARY_TERMINOLOGY,
+            "structural_changes_reload": list(STRUCTURAL_RELOAD_EXAMPLES),
+            "runtime_actions_do_not_reload": list(RUNTIME_NO_RELOAD_EXAMPLES),
+        },
         "runtime": {
             "loaded": coordinator is not None,
             "global_force_off": coordinator.data.global_force_off
