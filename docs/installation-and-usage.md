@@ -6,7 +6,7 @@ This guide covers the current first version of the `multi_zone_heating` custom H
 
 The integration evaluates heat demand across multiple configured zones and coordinates a shared main relay for the whole heating system.
 
-In version `0.3.0`, it can:
+In version `0.3.1`, it can:
 
 - read one or more temperature sensors per zone or local control group
 - persist one owned target temperature per zone
@@ -94,7 +94,7 @@ During the first step, the integration asks for:
 
 Each zone has a name, an enabled flag, a control type, and an integration-owned target temperature.
 
-Supported zone control types in `0.3.0`:
+Supported zone control types in `0.3.1`:
 
 - `climate`
 - `switch`
@@ -166,7 +166,7 @@ A number zone is also built from one or more local control groups. For each grou
 - active value
 - inactive value
 
-In version `0.3.0`, both `active value` and `inactive value` are required.
+In version `0.3.1`, both `active value` and `inactive value` are required.
 
 Behavior:
 
@@ -224,7 +224,7 @@ Attributes include:
 - `switch.<entry>_<zone>_enabled`
   - enables or disables one configured zone
 
-Zone enabled state is persisted back into the config entry, so it survives reloads.
+Zone target and enabled state are runtime-owned integration state. They should survive restart, but changing them should not reload the integration or make the virtual climate briefly unavailable.
 
 ### Sensor
 
@@ -279,13 +279,35 @@ Typical runtime usage is:
 
 ## First-Version Limitations
 
-Version `0.3.0` is usable, but it is still an early release. Current limits to document clearly:
+Version `0.3.1` is usable, but it is still an early release. Current limits to document clearly:
 
 - installation is documented as manual copy-based setup
 - the integration manages a single config entry for one heating system
 - zone targets are stored by the integration instead of external helper or climate entities
+- structural configuration edits still reload the integration, but runtime thermostat actions update in place without unloading entities
 - dedicated `number` platform entities are not exposed yet, even though number actuators are supported
 - documentation screenshots are placeholders for now
+
+### Reload Boundaries
+
+The integration uses a runtime-versus-structural boundary:
+
+- structural options edits reload the integration because they change topology, subscriptions, or coordinator wiring
+- runtime thermostat actions update in place and persist without reloading the config entry
+
+Structural examples:
+
+- adding, removing, or renaming zones
+- changing zone control type
+- changing configured sensors, actuators, local groups, relay, or flow sensor bindings
+- changing global timing, flow, frost, or failsafe settings through the options flow
+
+Runtime examples:
+
+- setting a zone climate target temperature
+- setting a zone climate `hvac_mode` to enable or disable a zone
+- setting the system climate target and fanning it out to zones
+- toggling global force-off
 
 ## Troubleshooting
 
