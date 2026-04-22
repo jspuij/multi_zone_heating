@@ -256,6 +256,189 @@ async def test_coordinator_dispatches_input_boolean_global_relay(hass) -> None:
     await coordinator.async_stop()
 
 
+async def test_coordinator_inhibits_switch_zone_while_open_detector_is_on(hass) -> None:
+    """Open detectors should suppress only their zone until all detectors close."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "off")
+    hass.states.async_set("binary_sensor.living_room_window", "off")
+
+    calls = _register_recording_switch_services(hass)
+    config = _build_switch_config()
+    config.zones[0].open_detector_entity_ids = ["binary_sensor.living_room_window"]
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert calls == [
+        ("turn_on", {"entity_id": "switch.radiator"}),
+        ("turn_on", {"entity_id": "switch.boiler"}),
+    ]
+
+    calls.clear()
+    hass.states.async_set("switch.radiator", "on")
+    hass.states.async_set("switch.boiler", "on")
+    hass.states.async_set("binary_sensor.living_room_window", "on")
+    await hass.async_block_till_done()
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.system_demand is False
+    assert coordinator.data.open_detector_states == {
+        "binary_sensor.living_room_window": True
+    }
+    assert coordinator.data.open_detector_open_entity_ids == [
+        "binary_sensor.living_room_window"
+    ]
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is True
+    assert coordinator.config.zones[0].enabled is True
+    assert calls == [
+        ("turn_off", {"entity_id": "switch.radiator"}),
+        ("turn_off", {"entity_id": "switch.boiler"}),
+    ]
+
+    calls.clear()
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "off")
+    hass.states.async_set("binary_sensor.living_room_window", "off")
+    await hass.async_block_till_done()
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.system_demand is True
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is False
+    assert calls == [
+        ("turn_on", {"entity_id": "switch.radiator"}),
+        ("turn_on", {"entity_id": "switch.boiler"}),
+    ]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_keeps_zone_inhibited_until_all_open_detectors_close(hass) -> None:
+    """Multiple detectors should inhibit the zone until the last open one closes."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "off")
+    hass.states.async_set("binary_sensor.living_room_window", "on")
+    hass.states.async_set("binary_sensor.living_room_door", "on")
+
+    calls = _register_recording_switch_services(hass)
+    config = _build_switch_config()
+    config.zones[0].open_detector_entity_ids = [
+        "binary_sensor.living_room_window",
+        "binary_sensor.living_room_door",
+    ]
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.system_demand is False
+    assert coordinator.data.open_detector_open_entity_ids == [
+        "binary_sensor.living_room_door",
+        "binary_sensor.living_room_window",
+    ]
+    assert calls == []
+
+    hass.states.async_set("binary_sensor.living_room_window", "off")
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is True
+    assert coordinator.data.open_detector_open_entity_ids == [
+        "binary_sensor.living_room_door"
+    ]
+    assert calls == []
+
+    hass.states.async_set("binary_sensor.living_room_door", "off")
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is False
+    assert coordinator.data.system_demand is True
+    assert calls == [
+        ("turn_on", {"entity_id": "switch.radiator"}),
+        ("turn_on", {"entity_id": "switch.boiler"}),
+    ]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_does_not_reenable_manually_disabled_zone_when_detector_closes(
+    hass,
+) -> None:
+    """Clearing detector inhibition should preserve the manual zone enabled state."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "off")
+    hass.states.async_set("binary_sensor.living_room_window", "on")
+
+    calls = _register_recording_switch_services(hass)
+    config = _build_switch_config()
+    config.zones[0].enabled = False
+    config.zones[0].open_detector_entity_ids = ["binary_sensor.living_room_window"]
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is True
+    assert coordinator.config.zones[0].enabled is False
+    assert calls == []
+
+    hass.states.async_set("binary_sensor.living_room_window", "off")
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is False
+    assert coordinator.config.zones[0].enabled is False
+    assert coordinator.data.system_demand is False
+    assert calls == []
+    await coordinator.async_stop()
+
+
+async def test_coordinator_does_not_count_unavailable_open_detector_as_open(hass) -> None:
+    """Unavailable detector entities should be visible but should not inhibit heat."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.radiator", "off")
+    hass.states.async_set("switch.boiler", "off")
+
+    calls = _register_recording_switch_services(hass)
+    config = _build_switch_config()
+    config.zones[0].open_detector_entity_ids = ["binary_sensor.living_room_window"]
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is False
+    assert coordinator.data.open_detector_states == {
+        "binary_sensor.living_room_window": None
+    }
+    assert coordinator.data.open_detector_unavailable_entity_ids == [
+        "binary_sensor.living_room_window"
+    ]
+    assert coordinator.data.system_demand is True
+    assert calls == [
+        ("turn_on", {"entity_id": "switch.radiator"}),
+        ("turn_on", {"entity_id": "switch.boiler"}),
+    ]
+    await coordinator.async_stop()
+
+
 async def test_coordinator_raises_missing_flow_warning_after_timeout(hass, monkeypatch) -> None:
     """Missing-flow warnings should trip on the scheduled timeout boundary."""
     now = datetime(2026, 4, 8, 10, 0, tzinfo=UTC)
@@ -527,6 +710,33 @@ async def test_coordinator_turns_climate_zone_off_when_global_force_off_is_enabl
     await coordinator.async_stop()
 
 
+async def test_coordinator_turns_climate_zone_off_when_open_detector_is_on(hass) -> None:
+    """Open detectors should use the same inactive climate behavior as zone disable."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("binary_sensor.living_room_window", "on")
+    hass.states.async_set(
+        "climate.radiator_a",
+        "heat",
+        {"temperature": 20.0, "hvac_modes": [HVACMode.HEAT, HVACMode.OFF]},
+    )
+    hass.states.async_set("switch.boiler", "on")
+    _register_recording_switch_services(hass)
+    climate_calls, hvac_mode_calls = _register_recording_climate_services(hass)
+    config = _build_climate_config()
+    config.zones[0].open_detector_entity_ids = ["binary_sensor.living_room_window"]
+
+    coordinator = MultiZoneHeatingCoordinator(hass, config)
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is True
+    assert coordinator.config.zones[0].enabled is True
+    assert climate_calls == []
+    assert hvac_mode_calls == [{"entity_id": "climate.radiator_a", ATTR_HVAC_MODE: HVACMode.OFF}]
+    await coordinator.async_stop()
+
+
 async def test_coordinator_retries_climate_off_when_slave_state_does_not_change(hass) -> None:
     """Forced-off climate commands should be retried until the slave state reflects them."""
     hass.states.async_set("sensor.living_room_temperature", "19.0")
@@ -747,6 +957,53 @@ async def test_coordinator_dispatches_number_group_values(hass) -> None:
     await hass.async_block_till_done()
 
     assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 100.0}]
+    await coordinator.async_stop()
+
+
+async def test_coordinator_writes_number_group_inactive_value_when_open_detector_is_on(
+    hass,
+) -> None:
+    """Open detectors should write inactive values for number actuators."""
+    hass.states.async_set("sensor.floor_temperature", "19.0")
+    hass.states.async_set("number.floor_valve", "100")
+    hass.states.async_set("switch.boiler", "on")
+    hass.states.async_set("binary_sensor.floor_window", "on")
+    _register_recording_switch_services(hass)
+    number_calls = _register_recording_number_services(hass)
+
+    coordinator = MultiZoneHeatingCoordinator(
+        hass,
+        IntegrationConfig(
+            main_relay_entity_id="switch.boiler",
+            zones=[
+                ZoneConfig(
+                    name="Floor",
+                    control_type=ControlType.NUMBER,
+                    target_temperature=20.0,
+                    open_detector_entity_ids=["binary_sensor.floor_window"],
+                    local_groups=[
+                        LocalControlGroup(
+                            name="Valve",
+                            control_type=ControlType.NUMBER,
+                            actuator_entity_ids=["number.floor_valve"],
+                            sensor_entity_ids=["sensor.floor_temperature"],
+                            aggregation_mode=AggregationMode.AVERAGE,
+                            number_semantic_type=NumberSemanticType.PERCENTAGE,
+                            active_value=100.0,
+                            inactive_value=0.0,
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+
+    await coordinator.async_start()
+    await hass.async_block_till_done()
+
+    assert coordinator.data is not None
+    assert coordinator.data.zone_evaluations[0].opening_inhibited is True
+    assert number_calls == [{"entity_id": "number.floor_valve", ATTR_VALUE: 0.0}]
     await coordinator.async_stop()
 
 

@@ -241,6 +241,37 @@ def test_disabled_zone_stays_off() -> None:
     assert evaluation.demand is False
 
 
+def test_open_detector_inhibited_zone_stays_off_without_disabling_zone() -> None:
+    """Open detectors should suppress demand without changing manual enabled state."""
+    zone = ZoneConfig(
+        name="Study",
+        control_type=ControlType.CLIMATE,
+        target_temperature=20.0,
+        sensor_entity_ids=["sensor.study"],
+        climate_entity_ids=["climate.study"],
+        open_detector_entity_ids=["binary_sensor.study_window"],
+        aggregation_mode=AggregationMode.AVERAGE,
+        enabled=True,
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.study": 16.0},
+        zone_target_temperature=21.0,
+        opening_inhibited=True,
+        open_detector_open_entity_ids=["binary_sensor.study_window"],
+        available_actuator_entity_ids=["climate.study"],
+        previous_demand=True,
+        hysteresis=0.3,
+    )
+
+    assert zone.enabled is True
+    assert evaluation.opening_inhibited is True
+    assert evaluation.open_detector_open_entity_ids == ["binary_sensor.study_window"]
+    assert evaluation.current_temperature is None
+    assert evaluation.demand is False
+
+
 def test_flow_threshold_reached_requires_value_and_threshold() -> None:
     """Flow detection should only become true with both configured inputs."""
     assert flow_threshold_reached(1.6, 1.5) is True

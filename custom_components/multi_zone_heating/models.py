@@ -122,6 +122,10 @@ class ZoneEvaluation:
     target_temperature: float | None
     effective_target_temperature: float | None
     demand: bool
+    opening_inhibited: bool = False
+    open_detector_entity_ids: list[str] = field(default_factory=list)
+    open_detector_open_entity_ids: list[str] = field(default_factory=list)
+    open_detector_unavailable_entity_ids: list[str] = field(default_factory=list)
     available_sensor_entity_ids: list[str] = field(default_factory=list)
     available_actuator_entity_ids: list[str] = field(default_factory=list)
     local_groups: list[LocalControlGroupEvaluation] = field(default_factory=list)
@@ -170,6 +174,9 @@ class RuntimeSnapshot:
     flow_detected: bool = False
     missing_flow_warning: bool = False
     missing_flow_warning_since: datetime | None = None
+    open_detector_states: dict[str, bool | None] = field(default_factory=dict)
+    open_detector_open_entity_ids: list[str] = field(default_factory=list)
+    open_detector_unavailable_entity_ids: list[str] = field(default_factory=list)
     actuator_available_entity_ids: list[str] = field(default_factory=list)
     unavailable_entity_ids: list[str] = field(default_factory=list)
     zone_evaluations: list[ZoneEvaluation] = field(default_factory=list)

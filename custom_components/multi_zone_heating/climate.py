@@ -209,6 +209,7 @@ class MultiZoneHeatingZoneClimate(MultiZoneHeatingClimateBase):
             zone is None
             or evaluation is None
             or not zone.enabled
+            or evaluation.opening_inhibited
             or data.global_force_off
         ):
             return HVACAction.OFF
