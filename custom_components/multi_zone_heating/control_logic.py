@@ -157,6 +157,9 @@ def evaluate_zone(
     sensor_values: Mapping[str, float | None],
     *,
     zone_target_temperature: float | None,
+    opening_inhibited: bool = False,
+    open_detector_open_entity_ids: Sequence[str] | None = None,
+    open_detector_unavailable_entity_ids: Sequence[str] | None = None,
     available_actuator_entity_ids: Collection[str] | None = None,
     previous_demand: bool,
     previous_group_demands: Mapping[str, bool] | None = None,
@@ -170,7 +173,10 @@ def evaluate_zone(
         global_frost_protection_min_temp=global_frost_protection_min_temp,
     )
 
-    if not zone.enabled:
+    open_detector_open_entity_ids = list(open_detector_open_entity_ids or [])
+    open_detector_unavailable_entity_ids = list(open_detector_unavailable_entity_ids or [])
+
+    if not zone.enabled or opening_inhibited:
         return ZoneEvaluation(
             name=zone.name,
             control_type=zone.control_type,
@@ -178,6 +184,10 @@ def evaluate_zone(
             target_temperature=zone_target_temperature,
             effective_target_temperature=effective_target_temperature,
             demand=False,
+            opening_inhibited=opening_inhibited,
+            open_detector_entity_ids=list(zone.open_detector_entity_ids),
+            open_detector_open_entity_ids=open_detector_open_entity_ids,
+            open_detector_unavailable_entity_ids=open_detector_unavailable_entity_ids,
         )
 
     if zone.local_groups:
@@ -202,6 +212,10 @@ def evaluate_zone(
             target_temperature=zone_target_temperature,
             effective_target_temperature=effective_target_temperature,
             demand=any(group.demand for group in local_groups),
+            opening_inhibited=opening_inhibited,
+            open_detector_entity_ids=list(zone.open_detector_entity_ids),
+            open_detector_open_entity_ids=open_detector_open_entity_ids,
+            open_detector_unavailable_entity_ids=open_detector_unavailable_entity_ids,
             local_groups=local_groups,
         )
 
@@ -227,6 +241,10 @@ def evaluate_zone(
         target_temperature=zone_target_temperature,
         effective_target_temperature=effective_target_temperature,
         demand=demand,
+        opening_inhibited=opening_inhibited,
+        open_detector_entity_ids=list(zone.open_detector_entity_ids),
+        open_detector_open_entity_ids=open_detector_open_entity_ids,
+        open_detector_unavailable_entity_ids=open_detector_unavailable_entity_ids,
         available_sensor_entity_ids=[
             entity_id
             for entity_id, _ in _available_temperatures(sensor_values, zone.sensor_entity_ids)
