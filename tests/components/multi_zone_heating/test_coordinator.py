@@ -912,6 +912,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
                     "target_temperature": 20.0,
                     "sensor_entity_ids": [],
                     "climate_entity_ids": [],
+                    "open_detector_entity_ids": ["binary_sensor.living_room_window"],
                     "climate_off_fallback_temperature": None,
                     "aggregation_mode": AggregationMode.AVERAGE,
                     "primary_sensor_entity_id": None,
@@ -940,6 +941,7 @@ def test_integration_config_from_dict_builds_typed_models() -> None:
     assert config.default_hysteresis == 0.4
     assert config.zones[0].control_type is ControlType.NUMBER
     assert config.zones[0].target_temperature == 20.0
+    assert config.zones[0].open_detector_entity_ids == ["binary_sensor.living_room_window"]
     assert config.zones[0].climate_off_fallback_temperature is None
     assert config.zones[0].local_groups[0].aggregation_mode is AggregationMode.MINIMUM
     assert config.zones[0].local_groups[0].number_semantic_type is NumberSemanticType.PERCENTAGE

@@ -75,6 +75,7 @@ def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
         target_temperature=target_temperature if target_temperature is not None else 20.0,
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
+        open_detector_entity_ids=list(data.get("open_detector_entity_ids", [])),
         climate_off_fallback_temperature=_as_float(
             data.get("climate_off_fallback_temperature")
         ),

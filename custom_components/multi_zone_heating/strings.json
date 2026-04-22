@@ -9,6 +9,7 @@
       "group_name_required": "Each local control group needs a name.",
       "group_requires_actuators": "Each local control group needs at least one actuator.",
       "group_requires_sensors": "Each local control group needs at least one temperature sensor.",
+      "invalid_open_detector_entity": "Open detector entities must be binary sensors.",
       "number_values_required": "Number control groups need active and inactive values.",
       "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
       "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
@@ -40,7 +41,8 @@
           "control_type": "Control type",
           "enabled": "Enabled",
           "frost_protection_min_temp": "Zone frost minimum",
-          "name": "Zone name"
+          "name": "Zone name",
+          "open_detector_entity_ids": "Door, window, or opening detectors"
         }
       },
       "climate_zone": {
@@ -90,6 +92,7 @@
       "group_name_required": "Each local control group needs a name.",
       "group_requires_actuators": "Each local control group needs at least one actuator.",
       "group_requires_sensors": "Each local control group needs at least one temperature sensor.",
+      "invalid_open_detector_entity": "Open detector entities must be binary sensors.",
       "number_values_required": "Number control groups need active and inactive values.",
       "primary_sensor_not_in_sensors": "The primary sensor must be one of the selected sensors.",
       "primary_sensor_required": "Select a primary sensor when using primary aggregation.",
@@ -142,7 +145,8 @@
           "control_type": "Control type",
           "enabled": "Enabled",
           "frost_protection_min_temp": "Zone frost minimum",
-          "name": "Zone name"
+          "name": "Zone name",
+          "open_detector_entity_ids": "Door, window, or opening detectors"
         }
       },
       "climate_zone": {
