@@ -268,6 +268,12 @@ class MultiZoneHeatingZoneClimate(MultiZoneHeatingClimateBase):
             "aggregation_mode": zone.aggregation_mode.value,
             "enabled": zone.enabled,
             "demand": evaluation.demand,
+            "opening_inhibited": evaluation.opening_inhibited,
+            "open_detector_entity_ids": evaluation.open_detector_entity_ids,
+            "open_detector_open_entity_ids": evaluation.open_detector_open_entity_ids,
+            "open_detector_unavailable_entity_ids": (
+                evaluation.open_detector_unavailable_entity_ids
+            ),
         }
         if zone.primary_sensor_entity_id is not None:
             attributes["primary_sensor_entity_id"] = zone.primary_sensor_entity_id

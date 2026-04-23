@@ -14,6 +14,7 @@ In version `0.3.1`, it can:
 - drive one or more switch actuators for a switch-based zone
 - drive one or more number actuators for a number-based zone
 - expose system-level control entities for master target fan-out and force-off behavior
+- inhibit a configured zone while selected door, window, or opening sensors are open
 - expose diagnostics for demand, relay state, and missing-flow warnings
 
 ## Before You Start
@@ -27,6 +28,7 @@ You should already have:
 Optional but supported:
 
 - a flow sensor entity
+- binary sensor entities for doors, windows, or other openings you want to use for zone inhibition
 
 ## Installation
 
@@ -102,6 +104,21 @@ Supported zone control types in `0.3.1`:
 
 New zones start at `20.0` degrees Celsius. If the global or zone frost minimum is higher than `20.0`, that higher value becomes the initial zone target instead.
 
+### Door And Window Detection
+
+Each zone can optionally list one or more `binary_sensor` entities as door, window, or opening detectors.
+
+Behavior:
+
+- a detector is considered open when its state is `on`
+- if any configured detector in a zone is open, that zone is temporarily inhibited
+- an inhibited zone stays manually enabled, but it does not contribute heat demand
+- climate, switch, and number actuators follow the same inactive behavior used when the zone is effectively off
+- when the final open detector closes, the zone resumes normal control if the zone is still manually enabled and global force-off is inactive
+- unavailable or unknown detectors do not inhibit heating in this version
+
+Diagnostics show the configured detector entity IDs, currently open detector entity IDs, unavailable detector entity IDs, and whether each zone is currently inhibited by an opening. Detector state changes are runtime reevaluations; changing detector membership in the options flow is structural and may reload the entry.
+
 ### Temperature Aggregation
 
 Where multiple sensors are configured, the integration supports:
@@ -132,6 +149,7 @@ Behavior:
 - slave climate entities follow the virtual zone master for `heat` or `off`
 - when demand stops, the zone becomes idle but slave climates do not switch `off` just because demand cleared
 - when the zone is disabled, or global force-off is active, the integration turns the climate entity `off` if supported
+- when a configured door/window detector is open, the same inactive climate behavior applies without changing the manual zone enabled state
 - if `off` is not supported, it can instead write the configured fallback temperature when the zone is disabled or globally forced off
 
 ### Switch Zone
@@ -150,6 +168,7 @@ Behavior:
 
 - if the local group demands heat, its switches are turned on
 - if it does not demand heat, its switches are turned off
+- if a configured door/window detector is open for the zone, all group switches are turned off
 
 ### Number Zone
 
@@ -172,6 +191,7 @@ Behavior:
 
 - when the group demands heat, the integration writes the active value
 - when the group stops demanding heat, it writes the inactive value
+- if a configured door/window detector is open for the zone, the integration writes the inactive value
 
 ## Recommended Setup Flow
 
@@ -208,6 +228,13 @@ Attributes include:
 - `zones_calling_for_heat`
 - `zone_target_temperatures`
 - `global_force_off`
+
+Zone climate attributes also include:
+
+- `opening_inhibited`
+- `open_detector_entity_ids`
+- `open_detector_open_entity_ids`
+- `open_detector_unavailable_entity_ids`
 
 ### Binary Sensors
 

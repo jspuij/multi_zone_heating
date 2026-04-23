@@ -189,7 +189,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     @callback
     def _async_handle_relevant_state_change(self, _event: Any) -> None:
         """Reevaluate the system when a relevant entity changes."""
-        self.hass.async_create_task(self.async_request_refresh())
+        self.hass.async_create_task(self.async_refresh())
 
     async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
         """Enable or disable one configured zone."""

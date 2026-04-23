@@ -150,3 +150,44 @@ async def test_zone_climate_diagnostics_distinguish_idle_disabled_and_forced_off
     assert zone["hvac_action"] == "off"
     assert zone["demand"] is False
     assert zone["global_force_off"] is True
+
+
+async def test_diagnostics_include_open_detector_state_by_zone(hass) -> None:
+    """Diagnostics should identify configured, open, and unavailable detectors."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("sensor.system_flow", "0.0")
+    hass.states.async_set("switch.radiator", STATE_OFF)
+    hass.states.async_set("switch.boiler", STATE_OFF)
+    hass.states.async_set("binary_sensor.living_room_window", "on")
+    _register_recording_switch_services(hass)
+
+    entry = _build_config_entry()
+    entry.data["zones"][0]["open_detector_entity_ids"] = [
+        "binary_sensor.living_room_window",
+        "binary_sensor.living_room_door",
+    ]
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    zone = diagnostics["runtime"]["zone_climates"][0]
+
+    assert zone["open_detector_entity_ids"] == [
+        "binary_sensor.living_room_window",
+        "binary_sensor.living_room_door",
+    ]
+    assert zone["open_detector_open_entity_ids"] == [
+        "binary_sensor.living_room_window"
+    ]
+    assert zone["open_detector_unavailable_entity_ids"] == [
+        "binary_sensor.living_room_door"
+    ]
+    assert zone["opening_inhibited"] is True
+    assert zone["hvac_action"] == "off"
+    assert zone["demand"] is False
+    assert diagnostics["runtime"]["snapshot"]["open_detector_states"] == {
+        "binary_sensor.living_room_window": True,
+        "binary_sensor.living_room_door": None,
+    }
