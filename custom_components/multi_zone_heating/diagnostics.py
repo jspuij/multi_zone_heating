@@ -134,7 +134,7 @@ def _zone_diagnostics(
         "hvac_mode": "heat" if zone.enabled else "off",
         "hvac_action": (
             "off"
-            if not zone.enabled or global_force_off
+            if not zone.enabled or global_force_off or evaluation.opening_inhibited
             else "heating" if evaluation.demand else "idle"
         ),
         "control_type": zone.control_type.value,
@@ -142,6 +142,12 @@ def _zone_diagnostics(
         "enabled": zone.enabled,
         "demand": evaluation.demand,
         "global_force_off": global_force_off,
+        "opening_inhibited": evaluation.opening_inhibited,
+        "open_detector_entity_ids": evaluation.open_detector_entity_ids,
+        "open_detector_open_entity_ids": evaluation.open_detector_open_entity_ids,
+        "open_detector_unavailable_entity_ids": (
+            evaluation.open_detector_unavailable_entity_ids
+        ),
         "target_temperature": evaluation.target_temperature,
         "effective_target_temperature": evaluation.effective_target_temperature,
         "current_temperature": evaluation.current_temperature,

@@ -272,6 +272,110 @@ def test_open_detector_inhibited_zone_stays_off_without_disabling_zone() -> None
     assert evaluation.demand is False
 
 
+def test_open_detector_multiple_open_detectors_are_reported() -> None:
+    """All open detectors should be exposed when inhibition is active."""
+    zone = ZoneConfig(
+        name="Study",
+        control_type=ControlType.CLIMATE,
+        target_temperature=20.0,
+        sensor_entity_ids=["sensor.study"],
+        climate_entity_ids=["climate.study"],
+        open_detector_entity_ids=[
+            "binary_sensor.study_window",
+            "binary_sensor.study_door",
+        ],
+        aggregation_mode=AggregationMode.AVERAGE,
+        enabled=True,
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.study": 16.0},
+        zone_target_temperature=21.0,
+        opening_inhibited=True,
+        open_detector_open_entity_ids=[
+            "binary_sensor.study_window",
+            "binary_sensor.study_door",
+        ],
+        available_actuator_entity_ids=["climate.study"],
+        previous_demand=True,
+        hysteresis=0.3,
+    )
+
+    assert evaluation.opening_inhibited is True
+    assert evaluation.open_detector_entity_ids == [
+        "binary_sensor.study_window",
+        "binary_sensor.study_door",
+    ]
+    assert evaluation.open_detector_open_entity_ids == [
+        "binary_sensor.study_window",
+        "binary_sensor.study_door",
+    ]
+    assert evaluation.demand is False
+    assert aggregate_system_demand([evaluation]) is False
+
+
+def test_open_detector_all_closed_allows_normal_demand() -> None:
+    """Closed detectors should not affect normal zone demand evaluation."""
+    zone = ZoneConfig(
+        name="Study",
+        control_type=ControlType.CLIMATE,
+        target_temperature=20.0,
+        sensor_entity_ids=["sensor.study"],
+        climate_entity_ids=["climate.study"],
+        open_detector_entity_ids=["binary_sensor.study_window"],
+        aggregation_mode=AggregationMode.AVERAGE,
+        enabled=True,
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.study": 16.0},
+        zone_target_temperature=21.0,
+        opening_inhibited=False,
+        open_detector_open_entity_ids=[],
+        available_actuator_entity_ids=["climate.study"],
+        previous_demand=False,
+        hysteresis=0.3,
+    )
+
+    assert evaluation.opening_inhibited is False
+    assert evaluation.open_detector_open_entity_ids == []
+    assert evaluation.current_temperature == 16.0
+    assert evaluation.demand is True
+
+
+def test_open_detector_unavailable_detector_is_reported_but_not_inhibiting() -> None:
+    """Unavailable detectors should be diagnostic only in version 1."""
+    zone = ZoneConfig(
+        name="Study",
+        control_type=ControlType.CLIMATE,
+        target_temperature=20.0,
+        sensor_entity_ids=["sensor.study"],
+        climate_entity_ids=["climate.study"],
+        open_detector_entity_ids=["binary_sensor.study_window"],
+        aggregation_mode=AggregationMode.AVERAGE,
+        enabled=True,
+    )
+
+    evaluation = evaluate_zone(
+        zone,
+        {"sensor.study": 16.0},
+        zone_target_temperature=21.0,
+        opening_inhibited=False,
+        open_detector_unavailable_entity_ids=["binary_sensor.study_window"],
+        available_actuator_entity_ids=["climate.study"],
+        previous_demand=False,
+        hysteresis=0.3,
+    )
+
+    assert evaluation.opening_inhibited is False
+    assert evaluation.open_detector_unavailable_entity_ids == [
+        "binary_sensor.study_window"
+    ]
+    assert evaluation.demand is True
+
+
 def test_flow_threshold_reached_requires_value_and_threshold() -> None:
     """Flow detection should only become true with both configured inputs."""
     assert flow_threshold_reached(1.6, 1.5) is True

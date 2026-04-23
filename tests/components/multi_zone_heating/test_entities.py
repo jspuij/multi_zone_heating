@@ -12,7 +12,10 @@ from custom_components.multi_zone_heating.const import DOMAIN
 from custom_components.multi_zone_heating.runtime_state import RuntimeStateStore
 
 
-def _build_config_entry() -> MockConfigEntry:
+def _build_config_entry(
+    *,
+    open_detector_entity_ids: list[str] | None = None,
+) -> MockConfigEntry:
     """Create a config entry with one switch-controlled zone."""
     return MockConfigEntry(
         domain=DOMAIN,
@@ -36,6 +39,7 @@ def _build_config_entry() -> MockConfigEntry:
                             "aggregation_mode": "average",
                         }
                     ],
+                    "open_detector_entity_ids": open_detector_entity_ids or [],
                 }
             ],
         },
@@ -722,3 +726,56 @@ async def test_zone_climate_keeps_heat_mode_but_reports_off_action_during_global
     assert climate_state.state == "heat"
     assert climate_state.attributes["hvac_action"] == "off"
     assert switch_state.state == STATE_ON
+
+
+async def test_detector_state_change_inhibits_zone_without_reloading_entry(hass) -> None:
+    """Detector state changes should be runtime reevaluations, not entry reloads."""
+    hass.states.async_set("sensor.living_room_temperature", "19.0")
+    hass.states.async_set("switch.radiator", STATE_OFF)
+    hass.states.async_set("switch.boiler", STATE_OFF)
+    hass.states.async_set("binary_sensor.living_room_window", STATE_OFF)
+    await hass.async_block_till_done()
+    _register_recording_switch_services(hass)
+
+    entry = _build_config_entry(
+        open_detector_entity_ids=["binary_sensor.living_room_window"]
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_reload",
+            AsyncMock(return_value=True),
+        ) as mock_reload,
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(return_value=True),
+        ) as mock_unload_platforms,
+    ):
+        hass.states.async_set("binary_sensor.living_room_window", STATE_ON)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_reload.assert_not_awaited()
+    mock_unload_platforms.assert_not_awaited()
+
+    assert (
+        entry.runtime_data.coordinator.data.zone_evaluations[0].opening_inhibited
+        is True
+    )
+
+    zone_climate_state = hass.states.get("climate.multi_zone_heating_living_room")
+    zone_demand_state = hass.states.get("binary_sensor.multi_zone_heating_living_room_demand")
+    assert zone_climate_state is not None
+    assert zone_climate_state.state == "heat"
+    assert zone_climate_state.attributes["hvac_action"] == "off"
+    assert zone_climate_state.attributes["opening_inhibited"] is True
+    assert zone_climate_state.attributes["open_detector_open_entity_ids"] == [
+        "binary_sensor.living_room_window"
+    ]
+    assert zone_demand_state is not None
+    assert zone_demand_state.state == STATE_OFF
+    assert entry.runtime_data.config.zones[0].enabled is True
