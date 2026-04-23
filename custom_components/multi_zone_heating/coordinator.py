@@ -75,6 +75,7 @@ def _zone_from_dict(data: Mapping[str, Any]) -> ZoneConfig:
         target_temperature=target_temperature if target_temperature is not None else 20.0,
         sensor_entity_ids=list(data.get("sensor_entity_ids", [])),
         climate_entity_ids=list(data.get("climate_entity_ids", [])),
+        open_detector_entity_ids=list(data.get("open_detector_entity_ids", [])),
         climate_off_fallback_temperature=_as_float(
             data.get("climate_off_fallback_temperature")
         ),
@@ -188,7 +189,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
     @callback
     def _async_handle_relevant_state_change(self, _event: Any) -> None:
         """Reevaluate the system when a relevant entity changes."""
-        self.hass.async_create_task(self.async_request_refresh())
+        self.hass.async_create_task(self.async_refresh())
 
     async def async_set_zone_enabled(self, zone_name: str, enabled: bool) -> None:
         """Enable or disable one configured zone."""
@@ -321,10 +322,23 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
 
         zone_evaluations = []
         for zone in self.config.zones:
+            open_detector_open_entity_ids = [
+                entity_id
+                for entity_id in zone.open_detector_entity_ids
+                if snapshot.open_detector_states.get(entity_id) is True
+            ]
+            open_detector_unavailable_entity_ids = [
+                entity_id
+                for entity_id in zone.open_detector_entity_ids
+                if snapshot.open_detector_states.get(entity_id) is None
+            ]
             evaluation = evaluate_zone(
                 zone,
                 snapshot.sensor_values,
                 zone_target_temperature=snapshot.target_temperatures.get(zone.name),
+                opening_inhibited=bool(open_detector_open_entity_ids),
+                open_detector_open_entity_ids=open_detector_open_entity_ids,
+                open_detector_unavailable_entity_ids=open_detector_unavailable_entity_ids,
                 available_actuator_entity_ids=snapshot.actuator_available_entity_ids,
                 previous_demand=self._last_zone_demands.get(zone.name, False),
                 previous_group_demands=self._last_group_demands.get(zone.name),
@@ -409,6 +423,15 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 else:
                     unavailable_entity_ids.add(climate_entity_id)
 
+            for detector_entity_id in zone.open_detector_entity_ids:
+                detector_open = self._read_toggle_state(detector_entity_id)
+                snapshot.open_detector_states[detector_entity_id] = detector_open
+                if detector_open is True:
+                    snapshot.open_detector_open_entity_ids.append(detector_entity_id)
+                elif detector_open is None:
+                    snapshot.open_detector_unavailable_entity_ids.append(detector_entity_id)
+                    unavailable_entity_ids.add(detector_entity_id)
+
             for group in zone.local_groups:
                 for sensor_entity_id in group.sensor_entity_ids:
                     sensor_value = self._read_numeric_state(sensor_entity_id)
@@ -440,6 +463,12 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 unavailable_entity_ids.add(self.config.flow_sensor_entity_id)
 
         snapshot.actuator_available_entity_ids = sorted(actuator_available_entity_ids)
+        snapshot.open_detector_open_entity_ids = sorted(
+            set(snapshot.open_detector_open_entity_ids)
+        )
+        snapshot.open_detector_unavailable_entity_ids = sorted(
+            set(snapshot.open_detector_unavailable_entity_ids)
+        )
         snapshot.unavailable_entity_ids = sorted(unavailable_entity_ids)
         return snapshot
 
@@ -475,7 +504,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
                 await self._async_dispatch_climate_zone(zone, evaluation, force_off=force_off)
                 continue
 
-            if force_off or not zone.enabled:
+            if force_off or not zone.enabled or evaluation.opening_inhibited:
                 for group_config in zone.local_groups:
                     if group_config.control_type is ControlType.SWITCH:
                         await self._async_dispatch_switch_group(group_config, False)
@@ -507,7 +536,7 @@ class MultiZoneHeatingCoordinator(DataUpdateCoordinator[RuntimeSnapshot]):
         force_off: bool,
     ) -> None:
         """Synchronize climate actuators with the effective target temperature."""
-        zone_master_active = zone.enabled and not force_off
+        zone_master_active = zone.enabled and not force_off and not evaluation.opening_inhibited
 
         for entity_id in zone.climate_entity_ids:
             if not self._entity_is_available(entity_id):
@@ -945,6 +974,7 @@ def _iter_relevant_entity_ids(config: IntegrationConfig) -> Iterable[str]:
     for zone in config.zones:
         yield from zone.sensor_entity_ids
         yield from zone.climate_entity_ids
+        yield from zone.open_detector_entity_ids
         for group in zone.local_groups:
             yield from group.sensor_entity_ids
             yield from group.actuator_entity_ids

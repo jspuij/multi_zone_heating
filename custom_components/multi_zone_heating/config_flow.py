@@ -9,6 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlowWithConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 
 from .const import DEFAULT_TITLE, CONFIG_ENTRY_VERSION, DOMAIN
@@ -35,6 +36,7 @@ CONF_MISSING_FLOW_TIMEOUT_SECONDS = "missing_flow_timeout_seconds"
 CONF_MIN_RELAY_OFF_TIME_SECONDS = "min_relay_off_time_seconds"
 CONF_MIN_RELAY_ON_TIME_SECONDS = "min_relay_on_time_seconds"
 CONF_NUMBER_SEMANTIC_TYPE = "number_semantic_type"
+CONF_OPEN_DETECTOR_ENTITY_IDS = "open_detector_entity_ids"
 CONF_PRIMARY_SENSOR_ENTITY_ID = "primary_sensor_entity_id"
 CONF_RELAY_OFF_DELAY_SECONDS = "relay_off_delay_seconds"
 CONF_SENSOR_ENTITY_IDS = "sensor_entity_ids"
@@ -143,6 +145,9 @@ class _MultiZoneHeatingFlowBase:
                 ),
                 vol.Optional(CONF_FROST_PROTECTION_MIN_TEMP): selector.NumberSelector(
                     selector.NumberSelectorConfig(step=0.5, mode="box")
+                ),
+                vol.Optional(CONF_OPEN_DETECTOR_ENTITY_IDS): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["binary_sensor"], multiple=True)
                 ),
             }
         )
@@ -319,6 +324,16 @@ class _MultiZoneHeatingFlowBase:
         name = str(user_input[CONF_NAME]).strip()
         if not name:
             return {"base": "zone_name_required"}
+        open_detector_entity_ids = _entity_id_list(
+            user_input.get(CONF_OPEN_DETECTOR_ENTITY_IDS)
+        )
+        if open_detector_entity_ids is None:
+            return {"base": "invalid_open_detector_entity"}
+        for entity_id in open_detector_entity_ids:
+            if not cv.valid_entity_id(entity_id) or not entity_id.startswith(
+                "binary_sensor."
+            ):
+                return {"base": "invalid_open_detector_entity"}
 
         return {}
 
@@ -394,6 +409,20 @@ class _MultiZoneHeatingFlowBase:
     def _build_pending_zone(self, user_input: dict[str, object]) -> None:
         """Store the shared zone fields that apply to all control types."""
         zone_frost_protection = user_input.get(CONF_FROST_PROTECTION_MIN_TEMP)
+        existing_zone = None
+        if self._editing_zone_index is not None:
+            existing_zone = self._zones()[self._editing_zone_index]
+        if CONF_OPEN_DETECTOR_ENTITY_IDS in user_input:
+            open_detector_entity_ids = (
+                _entity_id_list(user_input.get(CONF_OPEN_DETECTOR_ENTITY_IDS)) or []
+            )
+        elif existing_zone is not None:
+            open_detector_entity_ids = list(
+                existing_zone.get(CONF_OPEN_DETECTOR_ENTITY_IDS, [])
+            )
+        else:
+            open_detector_entity_ids = []
+
         self._pending_zone = {
             CONF_NAME: str(user_input[CONF_NAME]).strip(),
             CONF_ENABLED: user_input[CONF_ENABLED],
@@ -402,13 +431,13 @@ class _MultiZoneHeatingFlowBase:
                 self._config.get(CONF_FROST_PROTECTION_MIN_TEMP),
                 zone_frost_protection
             ),
+            CONF_OPEN_DETECTOR_ENTITY_IDS: open_detector_entity_ids,
             CONF_FROST_PROTECTION_MIN_TEMP: user_input.get(
                 CONF_FROST_PROTECTION_MIN_TEMP
             ),
         }
 
-        if self._editing_zone_index is not None:
-            existing_zone = self._zones()[self._editing_zone_index]
+        if existing_zone is not None:
             self._pending_zone[CONF_TARGET_TEMPERATURE] = existing_zone.get(
                 CONF_TARGET_TEMPERATURE,
                 initial_zone_target_temperature(
@@ -535,6 +564,7 @@ class _MultiZoneHeatingFlowBase:
             CONF_NAME: zone[CONF_NAME],
             CONF_ENABLED: zone.get(CONF_ENABLED, True),
             CONF_CONTROL_TYPE: zone[CONF_CONTROL_TYPE],
+            CONF_OPEN_DETECTOR_ENTITY_IDS: zone.get(CONF_OPEN_DETECTOR_ENTITY_IDS, []),
             CONF_FROST_PROTECTION_MIN_TEMP: zone.get(CONF_FROST_PROTECTION_MIN_TEMP),
         }
 
@@ -570,6 +600,19 @@ class _MultiZoneHeatingFlowBase:
             CONF_ACTIVE_VALUE: group.get(CONF_ACTIVE_VALUE),
             CONF_INACTIVE_VALUE: group.get(CONF_INACTIVE_VALUE),
         }
+
+
+def _entity_id_list(value: object) -> list[str] | None:
+    """Return a list of entity IDs from selector input."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        if all(isinstance(entity_id, str) for entity_id in value):
+            return value
+        return None
+    return None
 
 
 class MultiZoneHeatingConfigFlow(_MultiZoneHeatingFlowBase, ConfigFlow, domain=DOMAIN):

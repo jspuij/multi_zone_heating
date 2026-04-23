@@ -11,6 +11,7 @@ Version `0.3.1` is the current release. It supports UI-based setup, climate- and
 - A shared main relay that follows aggregate demand and may be backed by a `switch` or `input_boolean`
 - Zone control via `climate`, `switch`, or `number` actuators
 - Integration-owned zone targets
+- Optional per-zone door/window/opening detector inhibition
 - Temperature aggregation using `average`, `minimum`, or `primary` sensor selection
 - Optional relay timing protections:
   - minimum relay on time

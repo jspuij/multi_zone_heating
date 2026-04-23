@@ -257,6 +257,27 @@ Acceptance criteria:
 - A disabled zone does not generate demand
 - Disabling a zone updates downstream actuation accordingly
 
+#### US-027 Disable a zone when a door or window is open
+
+As a home owner,
+I want the integration to detect open doors and windows in each zone,
+so that heating is paused automatically while that zone is open to the outside.
+
+This story supersedes the earlier deferred idea to infer open windows from zone disable patterns. Version 1 uses explicitly configured detector entities instead of inference.
+
+Acceptance criteria:
+
+- Each zone can optionally select one or more open-state detector entities through the UI
+- The UI supports Home Assistant `binary_sensor` entities, including door, window, and opening sensors
+- A configured detector is considered open when its state is `on`
+- If one or more configured detectors in a zone are open, that zone is effectively disabled
+- An effectively disabled zone does not generate heat demand
+- While a zone is disabled by an open detector, climate, switch, and number actuators follow the same inactive behavior used for a disabled zone
+- When the last open detector in the zone closes, the automatic disable is removed and the zone resumes normal operation if it is manually enabled
+- Open-detector state changes do not persist or overwrite the user's manual zone enabled state
+- The zone climate, zone enabled surface, diagnostics, or status attributes make it clear when the zone is inhibited because an opening is open
+- Unavailable detector entities do not count as open, but they are reported in diagnostics
+
 #### US-018 Force all heating off globally
 
 As a home owner,
@@ -379,12 +400,6 @@ Acceptance criteria:
 
 ## Later Stories
 
-#### US-027 Detect open windows from zone disable patterns
-
-As a home owner,
-I want the integration to support smarter zone disable behavior,
-so that open-window logic can be added later.
-
 #### US-028 Provide richer fault entities and repair flows
 
 As a home owner,
@@ -418,6 +433,7 @@ The smallest coherent version 1 should include:
 - Demand calculation with global hysteresis
 - Global and per-zone frost protection minimums
 - Per-zone enable or disable
+- Per-zone open door/window detection
 - Global force-off
 - Zone and system demand entities
 - Top-level climate entity

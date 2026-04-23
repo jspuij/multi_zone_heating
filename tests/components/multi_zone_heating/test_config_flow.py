@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_NAME
 
@@ -38,6 +40,7 @@ from custom_components.multi_zone_heating.config_flow import (
     CONF_MIN_RELAY_OFF_TIME_SECONDS,
     CONF_MIN_RELAY_ON_TIME_SECONDS,
     CONF_NUMBER_SEMANTIC_TYPE,
+    CONF_OPEN_DETECTOR_ENTITY_IDS,
     CONF_PRIMARY_SENSOR_ENTITY_ID,
     CONF_RELAY_OFF_DELAY_SECONDS,
     CONF_SENSOR_ENTITY_IDS,
@@ -91,6 +94,7 @@ def _existing_config() -> dict[str, object]:
                 CONF_CONTROL_TYPE: ControlType.SWITCH,
                 CONF_TARGET_TEMPERATURE: DEFAULT_ZONE_TARGET_TEMPERATURE,
                 CONF_FROST_PROTECTION_MIN_TEMP: None,
+                CONF_OPEN_DETECTOR_ENTITY_IDS: [],
                 CONF_SENSOR_ENTITY_IDS: [],
                 CONF_CLIMATE_ENTITY_IDS: [],
                 CONF_LOCAL_GROUPS: [
@@ -174,6 +178,10 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+            CONF_OPEN_DETECTOR_ENTITY_IDS: [
+                "binary_sensor.living_room_window",
+                "binary_sensor.living_room_door",
+            ],
         },
     )
 
@@ -218,6 +226,10 @@ async def test_user_flow_creates_entry_for_climate_zone(hass) -> None:
                 CONF_CONTROL_TYPE: ControlType.CLIMATE,
                 CONF_TARGET_TEMPERATURE: 20.0,
                 CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+                CONF_OPEN_DETECTOR_ENTITY_IDS: [
+                    "binary_sensor.living_room_window",
+                    "binary_sensor.living_room_door",
+                ],
                 CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
                 CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
                 CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.5,
@@ -295,6 +307,7 @@ async def test_user_flow_creates_entry_for_switch_zone_with_local_group(hass) ->
             CONF_CONTROL_TYPE: ControlType.SWITCH,
             CONF_TARGET_TEMPERATURE: DEFAULT_ZONE_TARGET_TEMPERATURE,
             CONF_FROST_PROTECTION_MIN_TEMP: None,
+            CONF_OPEN_DETECTOR_ENTITY_IDS: [],
             CONF_SENSOR_ENTITY_IDS: [],
             CONF_CLIMATE_ENTITY_IDS: [],
             CONF_LOCAL_GROUPS: [
@@ -532,6 +545,24 @@ async def test_zone_requires_non_empty_name(hass) -> None:
     assert result["errors"] == {"base": "zone_name_required"}
 
 
+async def test_zone_rejects_non_binary_open_detector_entities(hass) -> None:
+    """Open detector selections should be limited to binary sensors."""
+    result = await _start_basic_flow(hass)
+
+    with pytest.raises(data_entry_flow.InvalidData) as exc_info:
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Living Room",
+                CONF_ENABLED: True,
+                CONF_CONTROL_TYPE: ControlType.CLIMATE,
+                CONF_OPEN_DETECTOR_ENTITY_IDS: ["sensor.living_room_window"],
+            },
+        )
+
+    assert exc_info.value.path == [CONF_OPEN_DETECTOR_ENTITY_IDS, 0]
+
+
 async def test_local_group_requires_non_empty_name(hass) -> None:
     """Local groups should reject blank input."""
     result = await _start_basic_flow(hass)
@@ -655,6 +686,7 @@ async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
             CONF_NAME: "Main Bedroom",
             CONF_ENABLED: True,
             CONF_CONTROL_TYPE: ControlType.SWITCH,
+            CONF_OPEN_DETECTOR_ENTITY_IDS: ["binary_sensor.main_bedroom_window"],
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
         },
     )
@@ -703,6 +735,9 @@ async def test_options_flow_updates_globals_zone_and_local_group(hass) -> None:
     assert result["data"][CONF_ZONES][0][CONF_NAME] == "Main Bedroom"
     assert result["data"][CONF_ZONES][0][CONF_TARGET_TEMPERATURE] == DEFAULT_ZONE_TARGET_TEMPERATURE
     assert result["data"][CONF_ZONES][0][CONF_FROST_PROTECTION_MIN_TEMP] == 8.0
+    assert result["data"][CONF_ZONES][0][CONF_OPEN_DETECTOR_ENTITY_IDS] == [
+        "binary_sensor.main_bedroom_window"
+    ]
     assert result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_NAME] == "Main Radiator"
     assert (
         result["data"][CONF_ZONES][0][CONF_LOCAL_GROUPS][0][CONF_ACTUATOR_ENTITY_IDS]
@@ -877,6 +912,7 @@ async def test_options_flow_can_add_and_remove_zones_and_local_groups(hass) -> N
             CONF_CONTROL_TYPE: ControlType.CLIMATE,
             CONF_TARGET_TEMPERATURE: 20.0,
             CONF_FROST_PROTECTION_MIN_TEMP: 8.0,
+            CONF_OPEN_DETECTOR_ENTITY_IDS: [],
             CONF_SENSOR_ENTITY_IDS: ["sensor.living_room_temperature"],
             CONF_CLIMATE_ENTITY_IDS: ["climate.living_room_radiator"],
             CONF_CLIMATE_OFF_FALLBACK_TEMPERATURE: 7.0,

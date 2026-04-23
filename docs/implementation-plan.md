@@ -28,6 +28,7 @@ Version 1 includes:
 - Relay minimum on and off times
 - Relay off-delay and flow-aware shutdown
 - Per-zone enable or disable
+- Per-zone open door/window detection from configured binary sensors
 - Global force-off
 - Global and per-zone frost protection minimums
 - Zone and system demand entities
@@ -62,7 +63,10 @@ Recommended order:
 5. Update slave actuator dispatch for `climate`, `switch`, and `number`
 6. Add relay, flow, and diagnostics behavior
 7. Add top-level climate behavior aligned with the new model
-8. Finish options flow, diagnostics polish, and tests
+8. Add per-zone open door/window sensor configuration and runtime inhibition
+9. Finish options flow, diagnostics polish, and tests
+
+Step 8 is not a standalone milestone. It maps across schema work, pure decision logic, coordinator subscriptions, actuator dispatch, diagnostics, and tests in Milestones 1, 2, 4, 6, and 7.
 
 ## Runtime Persistence Fix Plan
 
@@ -101,18 +105,20 @@ Related stories:
 
 - US-001
 - US-002
+- US-027
 - US-024
 
 ### Milestone 2: Core Decision Engine
 
 Goal:
-Implement pure logic for temperature aggregation, demand state transitions, frost protection, and relay timing using integration-owned zone targets.
+Implement pure logic for temperature aggregation, demand state transitions, open door/window inhibition, frost protection, and relay timing using integration-owned zone targets.
 
 Deliverables:
 
 - Updated `models.py`
 - Updated `control_logic.py`
 - Unit tests for aggregation and hysteresis
+- Unit tests for open door/window inhibition
 - Unit tests that validate zone climate `current_temperature` behavior
 - Unit tests for relay timing rules
 
@@ -123,6 +129,7 @@ Related stories:
 - US-007
 - US-008
 - US-009
+- US-027
 - US-014
 - US-015
 - US-022
@@ -155,6 +162,7 @@ Deliverables:
 
 - Updated `coordinator.py`
 - Entity state collection and validation
+- Door/window sensor state collection and validation
 - Owned target reads from zone climate state only
 - Scheduled reevaluation support for relay timing
 - Command dispatch helpers
@@ -167,6 +175,7 @@ Related stories:
 - US-014
 - US-015
 - US-016
+- US-027
 
 ### Milestone 5: Zone Control Types
 
@@ -194,7 +203,7 @@ Related stories:
 ### Milestone 6: Relay, Overrides, And UX
 
 Goal:
-Make whole-system operation reliable and understandable with the new target ownership model.
+Make whole-system operation reliable and understandable with the new target ownership model, including automatic per-zone inhibition when configured openings are open.
 
 Deliverables:
 
@@ -202,6 +211,7 @@ Deliverables:
 - Numeric flow threshold support
 - Demand-without-flow warning handling
 - Per-zone enable or disable
+- Per-zone door/window sensor selection and automatic zone inhibition
 - Zone climate HVAC mode aligned with zone enable or disable state
 - Global force-off behavior
 - Top-level climate semantics aligned with zone-owned targets
@@ -213,6 +223,7 @@ Related stories:
 - US-018
 - US-019
 - US-021
+- US-027
 
 ### Milestone 7: Diagnostics And Quality
 
@@ -231,6 +242,7 @@ Related stories:
 - US-019
 - US-025
 - US-026
+- US-027
 
 ## Technical Design Decisions
 
@@ -246,8 +258,10 @@ Related stories:
 
 - Reload the entry when structural configuration changes
 - Structural changes include zone additions or removals, zone renames, control-type changes, sensor or actuator membership changes, local-group edits, relay or flow entity changes, and global timing or safety settings changed through the options flow
+- Door/window sensor membership is structural per-zone configuration and changes through config or options flow may reload the entry
 - Do not reload the entry for runtime thermostat actions
 - Runtime actions include zone target changes, zone HVAC mode changes that map to enable or disable, system climate target fan-out, and global force-off toggles
+- Runtime door/window sensor state changes must reevaluate zones in place without updating config entries or unloading platforms
 - Runtime actions must update entity state in place and persist without unloading platforms
 
 ### Zone Climate Ownership
@@ -258,6 +272,21 @@ Related stories:
 - The coordinator must not read target temperature from slave entities
 - The zone climate `hvac_mode` is the canonical enabled or disabled state for the zone
 - Zone target and enabled-state writes must not go through config-entry reload paths
+
+### Door/Window Detection
+
+- Each zone may configure zero or more open-state detector entities
+- Detector entities are selected from Home Assistant `binary_sensor` entities, including sensors with door, window, or opening device classes
+- A configured detector is considered open when its state is `on`
+- A zone is effectively disabled while one or more configured detector entities in that zone are open
+- Open-detector inhibition is runtime state and must not overwrite the persisted manual zone enabled state
+- Closing the last open detector automatically removes the inhibition
+- After inhibition clears, the zone resumes normal control only if it is manually enabled and global force-off is inactive
+- While inhibited, the zone must not generate heat demand and downstream actuators follow the same safe inactive behavior used for an effective zone disable
+- System demand and relay decisions must ignore inhibited zone demand
+- Diagnostics should expose configured detector entities, currently open detector entities, unavailable detector entities, and whether the zone is inhibited by openings
+- Unavailable detector entities do not count as open in version 1, but they must be visible in diagnostics; persistent notifications or repair flows are future work
+- Open-detector inhibition is immediate in version 1; debounce, grace periods, and configurable open-delay behavior are future work
 
 ### Zone Climate Temperature Presentation
 
